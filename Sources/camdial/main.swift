@@ -1,3 +1,4 @@
+import AVFoundation
 import CamDialKit
 import Foundation
 
@@ -14,6 +15,15 @@ commands:
   preset apply <name>          apply a saved preset
   preset list                  list saved presets
   preset delete <name>         delete a preset
+  auto [features] [options]    run Smart Auto until interrupted (turns the camera on)
+      features: exposure, white-balance (both when none given)
+      --bias <ev>                exposure compensation, e.g. -0.5
+      --warmth <-1...1>          white balance warmth
+      --no-face                  meter the whole scene instead of faces
+      --min-fps <n>              lowest frame rate low light may drop to (default 15)
+      --max-gain <0...1>         share of the gain range to use (default 1)
+      --seconds <n>              stop after n seconds
+      --watch                    only print measurements; change nothing
 
 options:
   --camera <index|serial>      choose a camera (default: first Logitech camera, else first camera)
@@ -59,6 +69,8 @@ func render(_ state: ControlState) -> String {
     let d = state.control.definition
     var value = "\(state.current)"
     if let label = state.choices.first(where: { $0.value == state.current })?.label { value += " (\(label))" }
+    let formatted = ControlCatalog.format(d.id, state.current)
+    if formatted != "\(state.current)" { value += " (\(formatted))" }
     if case .toggle = d.kind { value = state.current != 0 ? "on" : "off" }
     var detail: [String] = []
     if let lo = state.minimum, let hi = state.maximum { detail.append("range \(lo)...\(hi)") }
@@ -184,11 +196,69 @@ func run() throws {
         default:
             throw CLIError(description: "unknown preset command \(sub)")
         }
+    case "auto":
+        try runSmartAuto()
     case "help", "-h", "--help":
         print(usage)
     default:
         throw CLIError(description: "unknown command \(command)\n\n\(usage)")
     }
+}
+
+func runSmartAuto() throws {
+    let bias = takeOption("--bias").flatMap(Double.init) ?? 0
+    let warmth = takeOption("--warmth").flatMap(Double.init) ?? 0
+    let seconds = takeOption("--seconds").flatMap(Double.init)
+    let noFace = takeFlag("--no-face")
+    let minFPS = takeOption("--min-fps").flatMap(Double.init)
+    let maxGain = takeOption("--max-gain").flatMap(Double.init)
+    let watch = takeFlag("--watch")
+    let features = Set(args)
+    guard features.isSubset(of: ["exposure", "white-balance"]) else {
+        throw CLIError(description: "unknown auto feature in \(args.joined(separator: " "))")
+    }
+    let camera = try selectCamera()
+
+    let access = DispatchSemaphore(value: 0)
+    var granted = false
+    AVCaptureDevice.requestAccess(for: .video) { granted = $0; access.signal() }
+    access.wait()
+    guard granted else { throw CLIError(description: "camera access denied; allow it in System Settings → Privacy & Security → Camera") }
+    guard let feed = CameraFeed(camera.info) else { throw CLIError(description: "AVFoundation cannot open \(camera.info.name)") }
+
+    let smart = SmartAuto(camera: camera, feed: feed, io: DispatchQueue(label: "camdial.io"))
+    var settings = SmartAutoSettings()
+    settings.exposure = !watch && (features.isEmpty || features.contains("exposure"))
+    settings.whiteBalance = !watch && (features.isEmpty || features.contains("white-balance"))
+    settings.exposureBias = bias
+    settings.warmth = warmth
+    settings.facePriority = !noFace
+    if let minFPS { settings.minimumFrameRate = minFPS }
+    if let maxGain { settings.maxGain = min(max(maxGain, 0), 1) }
+    smart.settings = settings
+    smart.refreshCameraState()
+    smart.onStatistics = { stats in
+        let face = stats.faceLuminance.map { String(format: "face %.3f", $0) } ?? "no face"
+        let cast = stats.neutralCast.map { String(format: "neutral warmth %+.3f tint %+.3f", $0.warmth, $0.tint) } ?? "no neutrals"
+        print(String(format: "scene %.3f  %@  clipped %.1f%%  %@ (%.0f%%)  average warmth %+.3f", stats.sceneLuminance, face,
+                     stats.clippedFraction * 100, cast, stats.neutralFraction * 100, stats.averageCast.warmth))
+    }
+    smart.onStatus = { status in
+        var parts: [String] = []
+        if let e = status.exposure { parts.append("shutter \(ShutterSpeed.label(units: e.time)) gain \(e.gain)") }
+        if let k = status.whiteBalance { parts.append("\(k) K") }
+        if status.adjusting { parts.append("adjusting") }
+        if status.needsMoreLight { parts.append("too dark: allow a lower frame rate or add light") }
+        if let problem = status.problem { parts.append(problem) }
+        if !parts.isEmpty { print("  -> " + parts.joined(separator: ", ")) }
+    }
+    feed.start()
+    signal(SIGINT, SIG_IGN)
+    let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+    interrupt.setEventHandler { exit(0) }
+    interrupt.resume()
+    if let seconds { DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { exit(0) } }
+    dispatchMain()
 }
 
 do {

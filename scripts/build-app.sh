@@ -3,7 +3,7 @@
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-version=${CAMDIAL_VERSION:-0.1.0}
+version=${CAMDIAL_VERSION:-0.2.0}
 app="$root/build/CamDial.app"
 
 # Build each architecture separately: multi-arch `swift build` needs Xcode's build system.
@@ -32,7 +32,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$version</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSCameraUsageDescription</key><string>CamDial shows a live preview so you can see the effect of camera settings.</string>
+  <key>NSCameraUsageDescription</key><string>CamDial analyses video on this Mac to run Smart Auto exposure and white balance, and shows a live preview. Video is never recorded or sent anywhere.</string>
 </dict>
 </plist>
 PLIST

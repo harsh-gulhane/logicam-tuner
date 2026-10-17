@@ -107,5 +107,147 @@ check(store.presets(for: camB).isEmpty, "presets are per camera")
 try store.delete(named: "Desk", for: camA)
 check(store.startupPreset(for: camA) == nil, "deleting a preset clears it as startup preset")
 
+// MARK: Formatting
+
+check(ShutterSpeed.label(units: 333) == "1/30 s", "shutter label at 30 fps")
+check(ShutterSpeed.label(units: 2047) == "1/5 s", "shutter label at the StreamCam maximum")
+check(ShutterSpeed.label(units: 10_000) == "1.0 s", "shutter label for long exposures")
+check(ControlCatalog.format("zoom", 150) == "1.5×", "zoom label")
+
+// MARK: Exposure allocation
+
+let limits = ExposureLimits(time: 3...2047, gain: 0...255, maxTime: 333, maxGain: 255, flickerPeriod: 100)
+let flickerSafe = ExposureController.setting(forEV: log2(250), limits)
+check(flickerSafe.time == 200 && flickerSafe.gain > 0, "shutter snaps to whole mains periods, gain makes up the rest")
+check(ExposureController.setting(forEV: log2(50), limits) == ExposureSetting(time: 50, gain: 0),
+      "bright scenes use short shutter and no gain")
+check(ExposureController.setting(forEV: log2(333) + 1, limits).time == 300, "shutter stops at the frame-rate limit")
+check(ExposureController.brightest(limits) == ExposureSetting(time: 300, gain: 255), "brightest setting")
+let capped = ExposureLimits(time: 3...2047, gain: 0...255, maxTime: 333, maxGain: 128, flickerPeriod: nil)
+check(ExposureController.brightest(capped) == ExposureSetting(time: 333, gain: 128), "gain cap and no anti-flicker")
+
+// MARK: Exposure feedback against a simulated camera
+
+/// A camera whose real gain is half as strong as the controller assumes and whose tone curve
+/// exaggerates exposure changes 1.8x, both seen on a real StreamCam in dim light.
+func simulatedScene(_ s: ExposureSetting, light: Double) -> FrameStatistics {
+    let exposure = light * Double(s.time) * (1 + Double(s.gain) / 64)
+    let luminance = min(pow(exposure, 1.8), 1)
+    return FrameStatistics(sceneLuminance: luminance, faceLuminance: nil, clippedFraction: 0,
+                           neutralCast: nil, neutralFraction: 0, averageCast: .neutral)
+}
+func runExposure(light: Double, from start: ExposureSetting, steps: Int) -> (ExposureSetting, changes: [Int]) {
+    var controller = ExposureController()
+    var setting = start
+    var changes: [Int] = []
+    for step in 0..<steps {
+        if let next = controller.update(simulatedScene(setting, light: light), current: setting, limits: limits) {
+            setting = next
+            changes.append(step)
+        }
+    }
+    return (setting, changes)
+}
+// light chosen so that target brightness needs about 1/60 s and no gain.
+let light = pow(ExposureController.sceneTarget, 1 / 1.8) / 166
+let (settled, changes) = runExposure(light: light, from: ExposureSetting(time: 10, gain: 0), steps: 40)
+let settledError = ExposureController().error(for: simulatedScene(settled, light: light))
+check(abs(settledError) < ExposureController.startThreshold, "exposure converges from far too dark (error \(settledError))")
+check((changes.last ?? 0) < 15, "exposure settles within 15 analysed frames (last change at \(changes.last ?? -1))")
+// The target (about 166 units) falls between two flicker-safe shutter times; this used to cycle.
+let (fromBright, brightChanges) = runExposure(light: light, from: ExposureSetting(time: 2047, gain: 255), steps: 40)
+check(abs(ExposureController().error(for: simulatedScene(fromBright, light: light))) < ExposureController.startThreshold
+      && (brightChanges.last ?? 0) < 15, "exposure converges from far too bright without cycling")
+// A manual shutter from before Smart Auto, beyond the frame-rate limit, is replaced even for a small correction.
+var inherited = ExposureController()
+let slow = ExposureSetting(time: 2047, gain: 48)
+let slightlyBright = FrameStatistics(sceneLuminance: 0.16 * pow(2, 0.4), faceLuminance: nil, clippedFraction: 0,
+                                     neutralCast: nil, neutralFraction: 0, averageCast: .neutral)
+check(inherited.update(slightlyBright, current: slow, limits: limits).map { $0.time <= 333 && $0.time % 100 == 0 } == true,
+      "an out-of-limits shutter time is re-split into a flicker-safe one")
+let onTarget = FrameStatistics(sceneLuminance: 0.16, faceLuminance: nil, clippedFraction: 0,
+                               neutralCast: nil, neutralFraction: 0, averageCast: .neutral)
+var fresh = ExposureController()
+check(fresh.update(onTarget, current: slow, limits: limits).map { $0.time <= 333 } == true,
+      "an out-of-limits setting is replaced even when brightness is on target")
+let (_, darkChanges) = runExposure(light: light / 40, from: ExposureSetting(time: 10, gain: 0), steps: 40)
+check((darkChanges.last ?? 0) < 20, "exposure stops changing at its limit in the dark")
+
+var faceMeter = ExposureController()
+let backlit = FrameStatistics(sceneLuminance: 0.16, faceLuminance: 0.04, clippedFraction: 0.1,
+                              neutralCast: nil, neutralFraction: 0, averageCast: .neutral)
+check(faceMeter.error(for: backlit) > 0.5, "a dark face against a bright scene brightens exposure")
+faceMeter.facePriority = false
+check(faceMeter.error(for: backlit) < 0, "without face priority a clipped scene darkens exposure")
+faceMeter.bias = 1
+check(abs(faceMeter.error(for: FrameStatistics(sceneLuminance: 0.16, faceLuminance: nil, clippedFraction: 0,
+                                                neutralCast: nil, neutralFraction: 0, averageCast: .neutral)) - 1) < 1e-9,
+      "exposure compensation shifts the target")
+
+// MARK: White balance feedback against a simulated camera
+
+/// Neutral surfaces render warm when the camera's temperature is above the light's (3400 K here).
+func simulatedNeutral(kelvin: Int) -> FrameStatistics {
+    let warmth = (1e6 / 3400 - 1e6 / Double(kelvin)) / 150
+    return FrameStatistics(sceneLuminance: 0.16, faceLuminance: nil, clippedFraction: 0,
+                           neutralCast: Chroma(warmth: warmth, tint: 0), neutralFraction: 0.3,
+                           averageCast: Chroma(warmth: warmth, tint: 0))
+}
+var wb = WhiteBalanceController()
+var kelvin = 6500
+var lastWBChange = -1
+for step in 0..<40 {
+    if let next = wb.update(simulatedNeutral(kelvin: kelvin), currentKelvin: kelvin, range: 2000...7500) {
+        kelvin = next
+        lastWBChange = step
+    }
+}
+check(abs(kelvin - 3400) < 200, "white balance converges to the light's temperature (got \(kelvin) K)")
+check(lastWBChange < 25, "white balance settles (last change at \(lastWBChange))")
+let noNeutrals = FrameStatistics(sceneLuminance: 0.16, faceLuminance: nil, clippedFraction: 0, neutralCast: nil,
+                                 neutralFraction: 0.01, averageCast: Chroma(warmth: 0.5, tint: 0))
+check(wb.update(noNeutrals, currentKelvin: 5000, range: 2000...7500) == nil, "white balance holds without neutral pixels")
+check(wb.searchCenter.warmth > 0, "the neutral search follows the frame's cast")
+
+// MARK: Frame analysis
+
+func frame(width: Int = 64, height: Int = 36, _ pixel: (Int, Int) -> (UInt8, UInt8, UInt8)) -> [UInt8] {
+    var bytes = [UInt8](repeating: 255, count: width * height * 4)
+    for y in 0..<height {
+        for x in 0..<width {
+            let (r, g, b) = pixel(x, y)
+            bytes[(y * width + x) * 4] = b
+            bytes[(y * width + x) * 4 + 1] = g
+            bytes[(y * width + x) * 4 + 2] = r
+        }
+    }
+    return bytes
+}
+func analyze(_ bytes: [UInt8], faces: [CGRect] = []) -> FrameStatistics {
+    bytes.withUnsafeBytes { FrameAnalyzer.analyze(bgra: $0, width: 64, height: 36, bytesPerRow: 256, faces: faces) }
+}
+let grey = analyze(frame { _, _ in (128, 128, 128) })
+check(abs(grey.sceneLuminance - FrameAnalyzer.linear[128]) < 0.002, "grey frame luminance")
+check(grey.neutralCast.map { abs($0.warmth) < 1e-6 && abs($0.tint) < 1e-6 } == true, "grey frame is neutral")
+check(grey.faceLuminance == nil && grey.clippedFraction == 0, "grey frame has no face or clipping")
+let amber = analyze(frame { _, _ in (180, 128, 90) })
+check(amber.neutralCast == nil && amber.averageCast.warmth > 0.5, "strong amber cast is found by the average, not as neutral")
+let face = CGRect(x: 0.4, y: 0.3, width: 0.2, height: 0.4)
+let darkFace = analyze(frame { x, y in face.contains(CGPoint(x: (Double(x) + 0.5) / 64, y: (Double(y) + 0.5) / 36)) ? (40, 40, 40) : (128, 128, 128) },
+                       faces: [face])
+check(darkFace.faceLuminance.map { $0 < 0.05 } == true && darkFace.sceneLuminance > 0.05, "face luminance is measured separately")
+let clipped = analyze(frame { _, _ in (255, 255, 255) })
+check(clipped.clippedFraction > 0.99, "white frame is clipped")
+
+// MARK: Smart Auto settings
+
+let decoded = try JSONDecoder().decode(SmartAutoSettings.self, from: Data("{\"exposure\": true}".utf8))
+check(decoded.exposure && !decoded.whiteBalance && decoded.minimumFrameRate == 15 && decoded.maxGain == 1,
+      "older or partial settings decode with defaults")
+check(decoded.ownedControls == ["exposure_mode", "exposure_time", "gain", "exposure_priority"], "exposure-owned controls")
+try store.setSmartAuto(decoded, for: camA)
+check(PresetStore(url: presetURL).smartAuto(for: camA) == decoded && store.smartAuto(for: camB) == SmartAutoSettings(),
+      "Smart Auto settings persist per camera")
+
 print("\(passed) passed, \(failures) failed")
 exit(failures == 0 ? 0 : 1)

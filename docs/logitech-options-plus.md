@@ -43,9 +43,37 @@ directly), derived (read from shipped code or data) or inferred.
   | 11 | FFE52D21-8030-4E2C-82D9-F587D00540BD | 4 | Publicly known as Logitech peripheral control |
   | 14 | 2C49D16A-32B8-4485-3EA8-643A152362F2 | 6 | Not present in the agent's GUID strings |
 
-- **Unknown.** Which extension-unit selectors implement auto-framing, Show Mode or HDR.
+- **Unknown.** Which extension-unit selectors implement auto-framing or Show Mode.
   Finding out would mean decompiling the agent's `logi::uvc` units or capturing USB
   traffic while toggling those features in Options+.
+
+## Controls Options+ offers for the StreamCam
+
+- **Derived.** `card_presets/card_presets_streamcam.json` in the Options+ install defines the
+  StreamCam's settings groups: camera (exposure auto/manual, priority `EXPOSURE` or
+  `FRAME_RATE`, gain, `hdr`), video (brightness, contrast, saturation, sharpness, white balance
+  auto/manual), crop (zoom, pan, tilt), focus (auto/manual) and microphone.
+- **Derived.** The UI labels gain as "ISO" and exposure as "Shutter speed", and maps the priority
+  to a "low light compensation" switch.
+- **Derived.** The agent's `logi::uvc::Device` has methods for every standard UVC control plus
+  vendor features (`fov`, `rightsight`, `auto_framing`, `eis`, `tint`, `vibrance`,
+  `white_balance_compensation`, `exposure_compensation`, ...), but no `hdr` method. It does have
+  `backlight_compensation` with a `BacklightCompensation` type.
+- **Inferred.** HDR on the StreamCam is the UVC backlight compensation control, which the camera
+  reports as a 0...1 switch. CamDial labels it "HDR (backlight compensation)".
+
+## Camera behaviour measured with `camdial auto --watch`
+
+- **Observed.** White-balance temperature changes the image as expected: average warmth rose from
+  -0.39 at 2800 K to +0.92 at 6500 K. One unit of warmth corresponded to 90-200 mired.
+- **Observed.** Gain 0 is nearly black in dim light, and gain adds less brightness per step
+  as it rises. Doubling the shutter time raised measured brightness by 1.6-2.3x the
+  expected amount, because of the camera's tone curve.
+- **Observed.** In a dim room, the camera's own auto exposure chose 1/25 s at full gain. Its auto
+  white balance had started near 5230 K, which rendered white surfaces amber, and was still
+  drifting after five seconds.
+- **Observed.** `AVCaptureDevice.isInUseByAnotherApplication` stayed false while other processes
+  streamed from the camera; CoreMediaIO's `kCMIODevicePropertyDeviceIsRunningSomewhere` reported it.
 
 ## Behaviour seen while testing CamDial
 

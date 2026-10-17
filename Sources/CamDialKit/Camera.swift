@@ -84,6 +84,17 @@ public struct ControlState: Equatable, Sendable {
 
     public var isWritable: Bool { info.contains(.set) && !lockedByAutomaticMode }
 
+    /// The same control with a newer current value, e.g. one CamDial just wrote.
+    public func with(current: Int) -> ControlState {
+        ControlState(control: control, current: current, minimum: minimum, maximum: maximum, resolution: resolution,
+                     defaultValue: defaultValue, info: info, lockedByAutomaticMode: lockedByAutomaticMode)
+    }
+
+    /// Clamps a value into the reported range.
+    public func clamped(_ value: Int) -> Int {
+        min(max(value, minimum ?? value), maximum ?? value)
+    }
+
     /// Choices the camera accepts, for choice controls.
     public var choices: [ControlKind.Choice] {
         guard case let .choice(all, fromResolution) = control.definition.kind else { return [] }
@@ -198,8 +209,15 @@ public final class Camera: @unchecked Sendable {
                 throw CameraError.invalidChoice(control: d.id, value: value)
             }
         }
+        try setCurrent(control, value: value)
+    }
+
+    /// Writes without re-reading the range, for callers that already validated against a recent `ControlState`.
+    public func setCurrent(_ control: CameraControl, value: Int) throws {
+        let d = control.definition
         // Compound controls are written whole, so start from the current wire value.
-        var bytes = try transfer(control, .getCurrent, length: d.length)
+        var bytes = d.fieldSize == d.length ? [UInt8](repeating: 0, count: d.length)
+            : try transfer(control, .getCurrent, length: d.length)
         WireCodec.encode(value, into: &bytes, d)
         _ = try transfer(control, .setCurrent, length: d.length, payload: bytes)
     }

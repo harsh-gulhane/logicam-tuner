@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- Hardened runtime requires this for the live preview's camera access. -->
+  <!-- Hardened runtime requires this for camera access (Smart Auto and the live preview). -->
   <key>com.apple.security.device.camera</key>
   <true/>
 </dict>

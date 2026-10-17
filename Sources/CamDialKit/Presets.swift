@@ -19,10 +19,11 @@ public struct Preset: Codable, Equatable, Sendable {
         public let error: Error
     }
 
-    /// Applies mode controls first so the values they gate become writable.
-    public func apply(to camera: Camera) -> [Failure] {
+    /// Applies mode controls first so the values they gate become writable. Controls in `skipping`
+    /// are left alone, e.g. those Smart Auto currently owns.
+    public func apply(to camera: Camera, skipping: Set<String> = []) -> [Failure] {
         ControlCatalog.all.compactMap { definition in
-            guard let value = values[definition.id] else { return nil }
+            guard let value = values[definition.id], !skipping.contains(definition.id) else { return nil }
             do {
                 let control = try camera.control(definition.id)
                 if try camera.read(control).current != value { try camera.write(control, value: value) }
@@ -43,6 +44,7 @@ public final class PresetStore: @unchecked Sendable {
     private struct CameraEntry: Codable {
         var presets: [String: Preset] = [:]
         var startupPreset: String?
+        var smartAuto: SmartAutoSettings?
     }
 
     public let url: URL
@@ -60,6 +62,14 @@ public final class PresetStore: @unchecked Sendable {
 
     public func startupPreset(for camera: CameraInfo) -> String? {
         lock.withLock { load().cameras[camera.persistentKey]?.startupPreset }
+    }
+
+    public func smartAuto(for camera: CameraInfo) -> SmartAutoSettings {
+        lock.withLock { load().cameras[camera.persistentKey]?.smartAuto ?? SmartAutoSettings() }
+    }
+
+    public func setSmartAuto(_ settings: SmartAutoSettings, for camera: CameraInfo) throws {
+        try mutate(camera) { $0.smartAuto = settings }
     }
 
     public func save(_ preset: Preset, named name: String, for camera: CameraInfo) throws {

@@ -74,9 +74,9 @@ public enum ControlCatalog {
         // Camera terminal (UVC 1.5 table 4-x, bmControls bit order).
         .init("exposure_mode", "Exposure mode", .cameraTerminal, bit: 1, selector: 0x02, length: 1,
               kind: .choice(exposureModes, supportedFromResolution: true)),
-        .init("exposure_priority", "Allow frame-rate drop", .cameraTerminal, bit: 2, selector: 0x03, length: 1, kind: .toggle),
+        .init("exposure_priority", "Low-light boost", .cameraTerminal, bit: 2, selector: 0x03, length: 1, kind: .toggle),
         .init("focus_auto", "Autofocus", .cameraTerminal, bit: 17, selector: 0x08, length: 1, kind: .toggle),
-        .init("exposure_time", "Exposure time", .cameraTerminal, bit: 3, selector: 0x04, length: 4, automatic: "exposure_mode"),
+        .init("exposure_time", "Shutter speed", .cameraTerminal, bit: 3, selector: 0x04, length: 4, automatic: "exposure_mode"),
         .init("focus", "Focus", .cameraTerminal, bit: 5, selector: 0x06, length: 2, automatic: "focus_auto"),
         .init("iris", "Iris", .cameraTerminal, bit: 7, selector: 0x09, length: 2),
         .init("zoom", "Zoom", .cameraTerminal, bit: 9, selector: 0x0B, length: 2),
@@ -96,13 +96,36 @@ public enum ControlCatalog {
         .init("gamma", "Gamma", .processingUnit, bit: 5, selector: 0x09, length: 2),
         .init("white_balance", "White balance (K)", .processingUnit, bit: 6, selector: 0x0A, length: 2,
               automatic: "white_balance_auto"),
-        .init("gain", "Gain", .processingUnit, bit: 9, selector: 0x04, length: 2, automatic: "exposure_mode"),
-        .init("backlight_compensation", "Backlight compensation", .processingUnit, bit: 8, selector: 0x01, length: 2),
+        .init("gain", "ISO (gain)", .processingUnit, bit: 9, selector: 0x04, length: 2, automatic: "exposure_mode"),
+        .init("backlight_compensation", "HDR (backlight compensation)", .processingUnit, bit: 8, selector: 0x01, length: 2),
         .init("power_line_frequency", "Anti-flicker", .processingUnit, bit: 10, selector: 0x05, length: 1,
               kind: .choice(powerLine, supportedFromResolution: false)),
     ]
 
     public static func definition(_ id: String) -> ControlDefinition? { all.first { $0.id == id } }
+
+    /// Human-readable value: shutter speed as a fraction of a second, pan/tilt in degrees and so on.
+    public static func format(_ id: String, _ value: Int) -> String {
+        switch id {
+        case "exposure_time": ShutterSpeed.label(units: value)
+        case "pan", "tilt": String(format: "%.0f°", Double(value) / 3600)
+        case "roll": "\(value)°"
+        case "white_balance": "\(value) K"
+        case "zoom": String(format: "%.1f×", Double(value) / 100)
+        default: "\(value)"
+        }
+    }
+}
+
+/// UVC exposure time is in 100 µs units.
+public enum ShutterSpeed {
+    public static func seconds(units: Int) -> Double { Double(units) / 10_000 }
+
+    public static func label(units: Int) -> String {
+        let seconds = seconds(units: units)
+        guard seconds > 0 else { return "0 s" }
+        return seconds >= 0.5 ? String(format: "%.1f s", seconds) : "1/\(Int((1 / seconds).rounded())) s"
+    }
 }
 
 /// Vendor extension units seen in Logitech webcams. Names follow public UVC driver projects;
