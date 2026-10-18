@@ -41,10 +41,14 @@ enum AutoMode: String, CaseIterable, Identifiable {
 }
 
 /// Owns the selected camera, its control snapshot, presets and Smart Auto. Hardware I/O runs on `io`.
+///
+/// Any camera can be selected; only UVC cameras have controls, presets and Smart Auto. While the
+/// window is not showing the preview, the selection follows the camera another app is using, so the
+/// overlay describes that stream, and returns to the chosen camera when no app is using one.
 @MainActor
 final class AppModel: ObservableObject {
-    @Published private(set) var cameras: [CameraInfo] = []
-    @Published var selectedCameraID: UInt64? { didSet { if oldValue != selectedCameraID { openSelected() } } }
+    @Published private(set) var cameras: [VideoCamera] = []
+    @Published private(set) var selectedCameraID: String? { didSet { if oldValue != selectedCameraID { openSelected() } } }
     @Published private(set) var states: [String: ControlState] = [:]
     @Published private(set) var controls: [CameraControl] = []
     @Published private(set) var presetNames: [String] = []
@@ -113,9 +117,19 @@ final class AppModel: ObservableObject {
     private var writeScheduled = false
     /// Cameras we have already applied a startup preset to during this attachment.
     private var initialized: Set<UInt64> = []
+    /// The camera picked in the window, kept across launches; nil means the first Logitech camera.
+    private var chosenCameraID = UserDefaults.standard.string(forKey: "camera")
+    /// When the selection last changed; following waits for the old camera to be released.
+    private var selectedAt = Date.distantPast
 
     init() {
         monitor = CameraMonitor { [weak self] _ in self?.refreshCameras() }
+        // Cameras that are not USB devices, such as Continuity Camera iPhones, come and go too.
+        for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshCameras() }
+            }
+        }
         refreshCameras()
         // CoreMediaIO's "running somewhere" is polled: it is cheap, and there is no KVO for it.
         usageTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -127,7 +141,27 @@ final class AppModel: ObservableObject {
         }
     }
 
-    var selectedCamera: CameraInfo? { cameras.first { $0.id == selectedCameraID } }
+    var selectedCamera: VideoCamera? { cameras.first { $0.id == selectedCameraID } }
+    /// The selected camera's USB identity, when it is a UVC camera with controls.
+    private var selectedUVC: CameraInfo? { selectedCamera?.uvc }
+
+    /// Selects a camera from the window and remembers it as the one to return to.
+    func chooseCamera(_ id: String) {
+        chosenCameraID = id
+        UserDefaults.standard.set(id, forKey: "camera")
+        select(id)
+    }
+
+    private func select(_ id: String?) {
+        guard id != selectedCameraID else { return }
+        selectedAt = Date()
+        selectedCameraID = id
+    }
+
+    private func chosenCamera(in cameras: [VideoCamera]) -> VideoCamera? {
+        cameras.first { $0.id == chosenCameraID } ?? cameras.first { $0.uvc?.isLogitech == true }
+            ?? cameras.first { $0.uvc != nil } ?? cameras.first
+    }
 
     func setPreview(_ visible: Bool, owner: String) {
         guard visible != previewOwners.contains(owner) else { return }
@@ -138,14 +172,19 @@ final class AppModel: ObservableObject {
     var previewFeed: CameraFeed? { feed }
 
     func refreshCameras() {
-        let found = Camera.list()
+        let found = VideoCamera.list()
+        let previous = selectedCamera
         cameras = found
-        initialized.formIntersection(found.map(\.id))
-        if selectedCameraID == nil || !found.contains(where: { $0.id == selectedCameraID }) {
-            selectedCameraID = (found.first(where: \.isLogitech) ?? found.first)?.id
+        let usb = found.compactMap(\.uvc)
+        initialized.formIntersection(usb.map(\.id))
+        if let current = selectedCamera {
+            // Replugged: same camera, new USB identity.
+            if current != previous { openSelected() }
+        } else {
+            select(chosenCamera(in: found)?.id)
         }
         if selectedCameraID == nil { close() }
-        for info in found where !initialized.contains(info.id) {
+        for info in usb where !initialized.contains(info.id) {
             initialized.insert(info.id)
             applyStartupPreset(info)
         }
@@ -163,22 +202,28 @@ final class AppModel: ObservableObject {
 
     private func openSelected() {
         close()
-        guard let info = selectedCamera else { return }
-        smart = store.smartAuto(for: info)
+        guard let selected = selectedCamera else { return }
+        smart = selected.uvc.map(store.smartAuto) ?? SmartAutoSettings()
+        guard let info = selected.uvc else {
+            attachFeed(selected, camera: nil)
+            reloadPresets()
+            return
+        }
         io.async { [weak self] in
             let result = Result { try Camera(info) }
             let snapshot = (try? result.get())?.readAll() ?? []
             DispatchQueue.main.async {
-                guard let self, self.selectedCameraID == info.id else { return }
+                guard let self, self.selectedCamera == selected else { return }
                 switch result {
                 case let .success(camera):
                     self.camera = camera
                     self.controls = camera.controls
                     self.states = Dictionary(uniqueKeysWithValues: snapshot.map { ($0.control.id, $0) })
                     self.errorMessage = nil
-                    self.attachFeed(camera)
+                    self.attachFeed(selected, camera: camera)
                 case let .failure(error):
                     self.errorMessage = "\(error)"
+                    self.attachFeed(selected, camera: nil)
                 }
                 self.reloadPresets()
             }
@@ -187,15 +232,18 @@ final class AppModel: ObservableObject {
 
     // MARK: Feed and Smart Auto
 
-    private func attachFeed(_ camera: Camera) {
-        guard let feed = CameraFeed(camera.info) else { return }
+    /// Starts watching `selected`; `camera` is its UVC control connection, when it has one.
+    private func attachFeed(_ selected: VideoCamera, camera: Camera?) {
+        guard let feed = CameraFeed(selected) else { return }
         feed.preferredFrameRate = frameRate
         feed.onLog = { message in Diagnostics.note(message) }
-        let smartAuto = SmartAuto(camera: camera, feed: feed, io: io)
-        smartAuto.onStatus = { [weak self] status in self?.apply(status) }
-        smartAuto.settings = smart
+        if let camera {
+            let smartAuto = SmartAuto(camera: camera, feed: feed, io: io)
+            smartAuto.onStatus = { [weak self] status in self?.apply(status) }
+            smartAuto.settings = smart
+            self.smartAuto = smartAuto
+        }
         self.feed = feed
-        self.smartAuto = smartAuto
         cameraInUse = feed.isStreamingSomewhere
         nextProbe = Date() + Self.probeInterval
         updateFeed()
@@ -206,6 +254,7 @@ final class AppModel: ObservableObject {
         liveMonitor.update(feed: feed, camera: camera, active: cameraInUse || previewVisible, otherApp: cameraInUse, io: io)
         fixSlowModeIfNeeded()
         updateOverlay()
+        followCameraInUse()
         guard let feed, !probing else { return }
         guard feed.isRunning else {
             // For a second or so after stopping, the camera still counts as running in this process;
@@ -239,6 +288,18 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// While the preview is hidden, selects the camera another app is using, so the overlay and Smart
+    /// Auto work on that stream, and goes back to the chosen camera once no app is using one.
+    private func followCameraInUse() {
+        // LogiCam Tuner's own stream lingers for a second or so after a switch.
+        guard !previewVisible, !probing, Date().timeIntervalSince(selectedAt) > 3 else { return }
+        let busy = cameras.filter { $0.id != selectedCameraID && $0.isStreamingSomewhere && !$0.isStreamingInThisProcess }
+        guard let target = VideoCamera.follow(selected: selectedCamera, selectedInUse: cameraInUse, busy: busy,
+                                              chosen: chosenCamera(in: cameras)) else { return }
+        Diagnostics.note("following camera: \(target.name)" + (busy.contains(target) ? " (in use)" : " (back to chosen camera)"))
+        select(target.id)
+    }
+
     /// How often LogiCam Tuner pauses its own stream to check whether the call app is still there;
     /// also roughly how long the camera stays on after a call ends.
     static let probeInterval: TimeInterval = 10
@@ -249,6 +310,12 @@ final class AppModel: ObservableObject {
             let d = feed.dimensions
             let fps = feed.measuredFrameRate
             info = fps > 0 ? String(format: "%d×%d · %.0f fps", d.width, d.height, fps) : "\(d.width)×\(d.height)"
+            // Cameras without controls report their own exposure and colour with each frame.
+            if camera == nil, let m = feed.metadata {
+                let parts = [m.exposureTime.map(ShutterSpeed.label(seconds:)), m.iso.map { String(format: "ISO %.0f", $0) },
+                             m.colorTemperature.map { "\($0) K" }].compactMap { $0 }
+                info = (parts + [info].compactMap { $0 }).joined(separator: "  ·  ")
+            }
         }
         if info != streamInfo { streamInfo = info }
     }
@@ -341,7 +408,7 @@ final class AppModel: ObservableObject {
         let ownershipChanged = next.ownedControls != smart.ownedControls
         smart = next
         smartAuto?.settings = next
-        if let info = selectedCamera {
+        if let info = selectedUVC {
             do { try store.setSmartAuto(next, for: info) } catch { errorMessage = "\(error)" }
         }
         updateFeed()
@@ -495,7 +562,7 @@ final class AppModel: ObservableObject {
     // MARK: Presets
 
     private func reloadPresets() {
-        guard let info = selectedCamera else { presetNames = []; startupPreset = nil; return }
+        guard let info = selectedUVC else { presetNames = []; startupPreset = nil; return }
         presetNames = store.presets(for: info).keys.sorted()
         startupPreset = store.startupPreset(for: info)
     }
@@ -526,13 +593,13 @@ final class AppModel: ObservableObject {
     }
 
     func deletePreset(named name: String) {
-        guard let info = selectedCamera else { return }
+        guard let info = selectedUVC else { return }
         do { try store.delete(named: name, for: info) } catch { errorMessage = "\(error)" }
         reloadPresets()
     }
 
     func setStartupPreset(_ name: String?) {
-        guard let info = selectedCamera else { return }
+        guard let info = selectedUVC else { return }
         do { try store.setStartupPreset(name, for: info) } catch { errorMessage = "\(error)" }
         reloadPresets()
     }
@@ -543,7 +610,7 @@ final class AppModel: ObservableObject {
         io.async { [weak self] in
             guard let camera = try? Camera(info) else { return }
             _ = preset.apply(to: camera, skipping: owned)
-            DispatchQueue.main.async { if self?.selectedCameraID == info.id { self?.reload() } }
+            DispatchQueue.main.async { if self?.selectedUVC == info { self?.reload() } }
         }
     }
 

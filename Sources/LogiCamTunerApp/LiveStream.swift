@@ -3,6 +3,7 @@ import Foundation
 
 /// What the camera is doing right now while an app (or LogiCam Tuner's preview) is streaming.
 struct LiveStream: Equatable {
+    var camera: VideoCamera
     /// Apps believed to be using the camera; empty when unknown.
     var apps: [CameraUser] = []
     var startedAt = Date()
@@ -12,8 +13,10 @@ struct LiveStream: Equatable {
     /// Measured by LogiCam Tuner's own connection to the stream; nil until it has frames.
     var measuredFrameRate: Double?
     var pixelFormat = ""
-    /// Current camera control values, read once a second.
+    /// Current camera control values, read once a second; UVC cameras only.
     var values: [String: Int] = [:]
+    /// Exposure and colour reported with the frames, by cameras without controls.
+    var metadata: FrameMetadata?
     /// Every app seen using the camera during this stream, for the session summary.
     var everUsedBy: [String] = []
     /// Measured frame rates, for the session summary.
@@ -35,6 +38,8 @@ struct LiveStream: Equatable {
 struct CameraSession: Codable, Identifiable, Equatable {
     var id = UUID()
     var app: String
+    /// Missing in sessions recorded before other cameras were supported.
+    var camera: String?
     var appIsGuess: Bool
     var startedAt: Date
     var duration: TimeInterval
@@ -97,9 +102,12 @@ final class LiveMonitor: ObservableObject {
     init() { sessions = store.load() }
 
     /// Called once a second. `active` is true while the camera streams for another app or the preview.
+    /// `camera` is the UVC control connection, for cameras that have one.
     func update(feed: CameraFeed?, camera: Camera?, active: Bool, otherApp: Bool, io: DispatchQueue) {
-        guard active, let feed, let camera else { finish(); return }
-        var next = live ?? LiveStream()
+        guard active, let feed else { finish(); return }
+        // Each camera's stream is its own session.
+        if let live, live.camera.id != feed.camera.id { finish() }
+        var next = live ?? LiveStream(camera: feed.camera)
         if live == nil { ticks = 0 }
         ticks += 1
         recording = recording || otherApp
@@ -116,20 +124,27 @@ final class LiveMonitor: ObservableObject {
         next.height = d.height
         next.configuredFrameRate = feed.configuredFrameRate
         next.pixelFormat = feed.pixelFormat
+        next.metadata = feed.metadata
         let fps = feed.isRunning ? feed.measuredFrameRate : 0
         if fps > 0 {
             if next.measuredFrameRate == nil {
-                Diagnostics.note("stream: \(next.appNames ?? "unknown app"), \(next.resolution) \(next.pixelFormat), "
-                                 + String(format: "%.0f fps configured, %.1f measured", next.configuredFrameRate, fps))
+                let reported = next.metadata.map { m in
+                    [m.exposureTime.map(ShutterSpeed.label(seconds:)), m.iso.map { String(format: "ISO %.0f", $0) },
+                     m.colorTemperature.map { "\($0) K" }, m.lux.map { "\($0) lux" }].compactMap { $0 }.joined(separator: " ")
+                }
+                Diagnostics.note("stream: \(next.appNames ?? "unknown app") on \(next.camera.name), \(next.resolution) \(next.pixelFormat), "
+                                 + String(format: "%.0f fps configured, %.1f measured", next.configuredFrameRate, fps)
+                                 + (reported.map { ", camera reports \($0)" } ?? ""))
             }
             next.measuredFrameRate = fps
             next.frameRateSamples = Array((next.frameRateSamples + [fps]).suffix(3600))
         }
         if next != live { live = next }
+        guard let camera else { return }
         io.async { [weak self] in
             let values = camera.currentValues(LiveStream.polledControls)
             DispatchQueue.main.async {
-                guard let self, var current = self.live, current.values != values else { return }
+                guard let self, var current = self.live, current.camera.uvc == camera.info, current.values != values else { return }
                 current.values = values
                 self.live = current
             }
@@ -152,12 +167,13 @@ final class LiveMonitor: ObservableObject {
         guard duration >= 3 else { return }
         let samples = live.frameRateSamples
         let session = CameraSession(app: live.everUsedBy.isEmpty ? "Unknown app" : live.everUsedBy.joined(separator: ", "),
+                                    camera: live.camera.name,
                                     appIsGuess: live.apps.isEmpty || live.appsAreGuess,
                                     startedAt: live.startedAt, duration: duration, resolution: live.resolution,
                                     configuredFrameRate: live.configuredFrameRate,
                                     averageMeasuredFrameRate: samples.isEmpty ? nil : samples.reduce(0, +) / Double(samples.count),
                                     pixelFormat: live.pixelFormat, upgradedFrom: live.upgradedFrom)
-        Diagnostics.note("session ended: \(session.app), \(session.resolution) at \(session.configuredFrameRate) fps, "
+        Diagnostics.note("session ended: \(session.app) on \(live.camera.name), \(session.resolution) at \(session.configuredFrameRate) fps, "
                          + "measured \(session.averageMeasuredFrameRate.map { String(format: "%.1f", $0) } ?? "none"), \(Int(duration)) s")
         sessions.insert(session, at: 0)
         sessions = Array(sessions.prefix(SessionStore.limit))

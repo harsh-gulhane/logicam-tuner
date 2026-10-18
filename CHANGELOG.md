@@ -6,6 +6,17 @@ PATCH for fixes. The version lives in the `VERSION` file.
 
 ## [Unreleased]
 
+### Added
+- The preview and stream overlay work with the Mac's built-in camera and Continuity Camera. The overlay
+  follows whichever camera an app is using, and returns to the chosen camera afterwards.
+- For cameras without controls, the overlay and preview readout show the shutter speed, ISO, colour
+  temperature and light level the camera reports with each frame.
+- Session history records which camera each session used; `logicam who` lists every camera.
+
+### Changed
+- When LogiCam Tuner picks the camera mode itself, it prefers 16:9 and falls back to 30 fps for cameras
+  that cannot reach the preview frame rate.
+
 ## [1.0.0] - 2026-10-18
 
 First public release.

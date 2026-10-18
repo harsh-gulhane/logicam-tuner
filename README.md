@@ -25,6 +25,10 @@ mechanism Logitech's own agent uses. It does not need Logi Options+, Logi Tune, 
 driver. It is built and tested on the StreamCam; other Logitech webcams (Brio, C920, C922…) and most USB
 (UVC) webcams should work too, but are untested so far.
 
+The preview and the stream overlay also work with the Mac's built-in camera and Continuity Camera, so
+calls are covered when the StreamCam is unplugged or another camera is in use. See
+[Other cameras](#other-cameras).
+
 ## Controls
 
 | Options+ name | LogiCam Tuner | UVC control |
@@ -70,6 +74,19 @@ macOS has no public API that names the apps using a camera. LogiCam Tuner report
 capturing the microphone while the camera runs, as call apps do, and otherwise the frontmost app
 known to use cameras (marked with "?"). An app using the camera with its microphone fully off is
 shown as "Unknown app". Resolution and frame rate are the camera's: apps may scale the picture further.
+
+### Other cameras
+
+The overlay follows whichever camera an app is using: the StreamCam, the Mac's built-in camera or a
+Continuity Camera iPhone. When a call uses a different camera, LogiCam Tuner switches to it while it is
+in the background, and returns to the camera picked in the window once no app is using a camera. If
+apps use several cameras at once, the StreamCam (or another UVC camera) is shown, since Smart Auto runs
+there.
+
+macOS adjusts the built-in camera itself and offers no manual controls for it, so there are no sliders
+or Smart Auto for it. Instead, the overlay and the preview's readout show what the camera reports with
+each frame: shutter speed, ISO, colour temperature and light level, plus resolution and frame rate. The
+camera picker in the window's toolbar selects any camera for the preview.
 
 ### Slow video modes (WhatsApp)
 
@@ -171,6 +188,7 @@ logicam reset
 logicam auto                    # Smart Auto until Ctrl-C (turns the camera on)
 logicam auto exposure --bias -0.3 --min-fps 15
 logicam auto --watch            # print measurements only; change nothing
+logicam who                     # which cameras are streaming, and the likely apps
 ```
 
 Use `--camera <index|serial>` when several cameras are attached and `--json` for scripting.
@@ -199,6 +217,7 @@ Use `--camera <index|serial>` when several cameras are attached and `--json` for
 | Camera | USB ID | Firmware | Result |
 | --- | --- | --- | --- |
 | Logitech StreamCam | 046d:0893 | 0x0317 | All 18 advertised standard controls and Smart Auto, macOS 27.0.1 |
+| MacBook Pro (M5) built-in camera | — | — | Preview and overlay, with shutter, ISO, colour temperature and light level from frame metadata, macOS 27 |
 
 Reports for other cameras are welcome: include `logicam list` and `logicam describe` output.
 
@@ -234,7 +253,10 @@ Each step started with a problem I hit with the StreamCam and ended with a fix i
    camera to 1080p at 30 fps a moment after WhatsApp starts.
 10. **"Auto" anti-flicker failed with an error.** The StreamCam only accepts 50 Hz and 60 Hz, so the app
     now offers only what the camera reports it supports.
-11. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
+11. **Calls on the MacBook's own camera showed nothing.** The app only knew USB cameras. It now
+    watches every camera, follows the one in use, and reads the built-in camera's exposure and colour
+    from the metadata its image pipeline attaches to every frame, since that camera has no controls.
+12. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
     portrait stream to other apps needs a virtual camera. Research is in progress.
 
 ## Development

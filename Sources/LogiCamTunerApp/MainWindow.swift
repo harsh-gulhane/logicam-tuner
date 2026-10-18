@@ -41,7 +41,7 @@ struct MainView: View {
         ZStack(alignment: .bottomLeading) {
             Color.black
             if model.selectedCamera == nil {
-                Text("No USB video camera found.").foregroundStyle(.secondary)
+                Text("No camera found.").foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let feed = model.previewFeed {
                 PreviewView(feed: feed, mirrored: mirrored)
@@ -81,7 +81,7 @@ struct MainView: View {
     private var controlsPane: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if model.selectedCamera != nil { ControlsPanel() }
+                if model.selectedCamera?.uvc != nil { ControlsPanel() } else if model.selectedCamera != nil { NoControlsNote() }
                 SessionsView(monitor: model.liveMonitor)
                 GroupBox("App") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -114,18 +114,19 @@ struct MainView: View {
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
             if model.cameras.count > 1 {
-                Picker("Camera", selection: $model.selectedCameraID) {
+                Picker("Camera", selection: Binding(get: { model.selectedCameraID }, set: { $0.map(model.chooseCamera) })) {
                     ForEach(model.cameras) { Text($0.name).tag(Optional($0.id)) }
                 }
+                .help("While LogiCam Tuner is in the background, the overlay follows whichever camera an app is using")
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Toggle(isOn: $mirrored) { Label("Mirror", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right") }
                 .help("Mirror the preview")
             Button { model.reload() } label: { Label("Re-read camera", systemImage: "arrow.clockwise") }
-                .help("Re-read camera").disabled(model.selectedCamera == nil)
+                .help("Re-read camera").disabled(model.selectedCamera?.uvc == nil)
             Button { model.resetToDefaults() } label: { Label("Reset to defaults", systemImage: "arrow.counterclockwise.circle") }
-                .help("Reset every control to the camera's default").disabled(model.selectedCamera == nil)
+                .help("Reset every control to the camera's default").disabled(model.selectedCamera?.uvc == nil)
         }
     }
 }
@@ -150,10 +151,12 @@ struct MenuView: View {
                 } label: { Label("Open LogiCam Tuner", systemImage: "macwindow") }
                     .help("Open the main window with a large live preview")
             }
-            if model.selectedCamera != nil {
+            if model.selectedCamera?.uvc != nil {
                 ScrollView { ControlsPanel() }.frame(maxHeight: 520)
+            } else if model.selectedCamera != nil {
+                NoControlsNote()
             } else {
-                Text("No USB video camera found.").foregroundStyle(.secondary)
+                Text("No camera found.").foregroundStyle(.secondary)
             }
             if let error = model.errorMessage {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(3)
@@ -163,13 +166,25 @@ struct MenuView: View {
             }
             .font(.caption)
             HStack {
-                Button("Reset to defaults") { model.resetToDefaults() }.disabled(model.selectedCamera == nil)
+                Button("Reset to defaults") { model.resetToDefaults() }.disabled(model.selectedCamera?.uvc == nil)
                 Spacer()
                 Button("Quit LogiCam Tuner") { NSApplication.shared.terminate(nil) }
             }
         }
         .padding(12)
         .frame(width: 370)
+    }
+}
+
+/// In place of the controls, for cameras such as the Mac's built-in one that only macOS adjusts.
+struct NoControlsNote: View {
+    var body: some View {
+        GroupBox("Camera") {
+            Text("macOS sets this camera's exposure, white balance and focus itself; it has no manual controls or Smart Auto. The overlay and the readout on the preview show what it chose. Portrait, Studio Light and Center Stage are under Video Effects in Control Centre while an app uses the camera.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .padding(4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

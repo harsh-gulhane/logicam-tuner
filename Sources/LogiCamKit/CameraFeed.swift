@@ -1,19 +1,5 @@
 import AVFoundation
-import CoreMediaIO
 import CoreVideo
-
-extension CameraInfo {
-    /// The AVFoundation device for this USB camera. AVFoundation's modelID embeds
-    /// "VendorID_<dec> ProductID_<dec>" and its uniqueID embeds the USB location ID in hex.
-    public func captureDevice() -> AVCaptureDevice? {
-        let devices = AVCaptureDevice.DiscoverySession(deviceTypes: [.external], mediaType: .video,
-                                                       position: .unspecified).devices
-        let model = "VendorID_\(vendorID) ProductID_\(productID)"
-        let location = String(format: "%x", locationID)
-        return devices.first { $0.modelID.contains(model) && $0.uniqueID.lowercased().contains(location) }
-            ?? devices.first { $0.modelID.contains(model) }
-    }
-}
 
 /// One capture session for a camera, shared by the live preview and Smart Auto.
 ///
@@ -26,6 +12,7 @@ extension CameraInfo {
 /// with that output showed a visibly low-resolution picture of a 1080p stream.
 public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     public let session = AVCaptureSession()
+    public let camera: VideoCamera
     public let device: AVCaptureDevice
     /// Called on the feed's queue with each full-resolution frame; return quickly.
     public var onFrame: ((CVPixelBuffer) -> Void)?
@@ -38,15 +25,20 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     }
     /// Frames per second actually delivered over the last second or so; 0 when not streaming.
     public var measuredFrameRate: Double { lock.withLock { frameTimes.count > 1 ? Double(frameTimes.count - 1) / max(frameTimes.last! - frameTimes.first!, 1e-3) : 0 } }
+    /// Exposure and colour the camera reported with a recent frame; nil for cameras that report none.
+    public var metadata: FrameMetadata? { lock.withLock { _metadata } }
     private let lock = NSLock()
     private var _preferredFrameRate = 30.0
     private var frameTimes: [Double] = []
+    private var _metadata: FrameMetadata?
+    private var metadataTime = -Double.infinity
     private let queue = DispatchQueue(label: "logicam.feed")
     private let output = AVCaptureVideoDataOutput()
     private var displayLayers: [AVSampleBufferDisplayLayer] = []
 
-    public init?(_ camera: CameraInfo) {
+    public init?(_ camera: VideoCamera) {
         guard let device = camera.captureDevice(), let input = try? AVCaptureDeviceInput(device: device) else { return nil }
+        self.camera = camera
         self.device = device
         self.input = input
         super.init()
@@ -68,50 +60,10 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     public var isRunning: Bool { session.isRunning }
 
     /// Whether this process is streaming from the camera (any session, not just this feed's).
-    public var isStreamingInThisProcess: Bool { cmioFlag(kCMIODevicePropertyDeviceIsRunning) }
+    public var isStreamingInThisProcess: Bool { camera.isStreamingInThisProcess }
 
     /// Whether any process, including this one, is streaming from the camera.
-    ///
-    /// `AVCaptureDevice.isInUseByAnotherApplication` stayed false on macOS 27 while other apps streamed
-    /// from a StreamCam, so this asks CoreMediaIO, which reports streaming by any client.
-    public var isStreamingSomewhere: Bool { cmioFlag(kCMIODevicePropertyDeviceIsRunningSomewhere) }
-
-    private func cmioFlag(_ selector: Int) -> Bool {
-        // Looked up on each call (a few cheap property reads) so replugging and threads need no care.
-        guard let object = Self.cmioObject(uniqueID: device.uniqueID) else { return false }
-        var address = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(selector),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
-        var running: UInt32 = 0
-        var used: UInt32 = 0
-        guard CMIOObjectGetPropertyData(object, &address, 0, nil, 4, &used, &running) == 0 else { return false }
-        return running != 0
-    }
-
-    static func cmioObject(uniqueID: String) -> CMIOObjectID? {
-        var address = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIOHardwarePropertyDevices),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
-        let system = CMIOObjectID(kCMIOObjectSystemObject)
-        var size: UInt32 = 0
-        guard CMIOObjectGetPropertyDataSize(system, &address, 0, nil, &size) == 0, size > 0 else { return nil }
-        var objects = [CMIOObjectID](repeating: 0, count: Int(size) / MemoryLayout<CMIOObjectID>.size)
-        guard CMIOObjectGetPropertyData(system, &address, 0, nil, size, &size, &objects) == 0 else { return nil }
-        return objects.first { object in
-            var uidAddress = CMIOObjectPropertyAddress(
-                mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyDeviceUID),
-                mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
-                mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
-            var uid: Unmanaged<CFString>?
-            var used: UInt32 = 0
-            let status = CMIOObjectGetPropertyData(object, &uidAddress, 0, nil,
-                                                   UInt32(MemoryLayout<Unmanaged<CFString>?>.size), &used, &uid)
-            guard status == 0, let value = uid?.takeRetainedValue() else { return false }
-            return value as String == uniqueID
-        }
-    }
+    public var isStreamingSomewhere: Bool { camera.isStreamingSomewhere }
 
     /// Current frame duration in seconds, which bounds the longest useful shutter time.
     public var frameDuration: Double {
@@ -128,7 +80,9 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
             guard !session.isRunning else { return }
             let locked = (try? device.lockForConfiguration()) != nil
             defer { if locked { device.unlockForConfiguration() } }
-            if locked, !isStreamingSomewhere, let (format, frameDuration) = Self.videoFormat(device, frameRate: preferredFrameRate) {
+            // Cameras such as the Mac's built-in one stop at 30 fps.
+            if locked, !isStreamingSomewhere, let (format, frameDuration) = Self.videoFormat(device, frameRate: preferredFrameRate)
+                ?? Self.videoFormat(device, frameRate: 30) {
                 device.activeFormat = format
                 device.activeVideoMinFrameDuration = frameDuration
             }
@@ -141,10 +95,11 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         }
     }
 
-    /// The largest format up to 1080p that reaches `frameRate`, with the matching frame duration.
+    /// The largest format up to 1080p that reaches `frameRate`, with the matching frame duration,
+    /// preferring 16:9 (the Mac's built-in camera also offers larger 4:3, square and portrait modes).
     /// Cameras such as the StreamCam list each rate as its own fixed range, often on separate formats.
     static func videoFormat(_ device: AVCaptureDevice, frameRate: Double) -> (AVCaptureDevice.Format, CMTime)? {
-        let candidates = device.formats.compactMap { format -> (AVCaptureDevice.Format, CMTime, Int32, Double)? in
+        let candidates = device.formats.compactMap { format -> (AVCaptureDevice.Format, CMTime, Bool, Int32, Double)? in
             let d = format.formatDescription.dimensions
             guard d.width <= 1920, let range = format.videoSupportedFrameRateRanges.first(where: {
                 $0.minFrameRate <= frameRate + 0.5 && $0.maxFrameRate >= frameRate - 0.5
@@ -152,11 +107,11 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
             let duration = range.minFrameRate == range.maxFrameRate ? range.minFrameDuration
                 : CMTime(value: 1000, timescale: CMTimeScale(frameRate * 1000))
             let fastest = format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0
-            return (format, duration, d.width * d.height, fastest)
+            return (format, duration, d.width * 9 == d.height * 16, d.width * d.height, fastest)
         }
-        // Largest picture; among equals, the format that can run fastest (on the StreamCam the
-        // compressed 420v modes, which need less USB bandwidth than uncompressed yuvs).
-        return candidates.max { ($0.2, $0.3) < ($1.2, $1.3) }.map { ($0.0, $0.1) }
+        // 16:9, then the largest picture; among equals, the format that can run fastest (on the
+        // StreamCam the compressed 420v modes, which need less USB bandwidth than uncompressed yuvs).
+        return candidates.max { ($0.2 ? 1 : 0, $0.3, $0.4) < ($1.2 ? 1 : 0, $1.3, $1.4) }.map { ($0.0, $0.1) }
     }
 
     /// Switches the camera to a smoother mode while another app is streaming, e.g. when an app picked
@@ -205,7 +160,7 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     public func stop() {
         queue.async { [self] in
             if session.isRunning { session.stopRunning() }
-            lock.withLock { frameTimes = [] }
+            lock.withLock { frameTimes = []; _metadata = nil; metadataTime = -.infinity }
         }
     }
 
@@ -221,10 +176,14 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                               from connection: AVCaptureConnection) {
         let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
-        let layers = lock.withLock { () -> [AVSampleBufferDisplayLayer] in
+        let (layers, readMetadata) = lock.withLock { () -> ([AVSampleBufferDisplayLayer], Bool) in
             frameTimes.append(time)
             frameTimes.removeAll { $0 < time - 1 }
-            return displayLayers
+            return (displayLayers, time - metadataTime >= 0.25)
+        }
+        if readMetadata {
+            let metadata = FrameMetadata(sampleBuffer)
+            lock.withLock { _metadata = metadata; metadataTime = time }
         }
         if !layers.isEmpty {
             // Live video: show each frame as soon as it arrives rather than by its timestamp.

@@ -84,6 +84,7 @@ struct OverlayView: View {
     private func details(_ live: LiveStream) -> some View {
         let v = live.values
         return Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
+            row("Camera", live.camera.name)
             row("Video", "\(live.resolution) · \(fps(live.configuredFrameRate)) fps")
             row("Measured", measured(live))
             row("Format", live.pixelFormat)
@@ -94,20 +95,37 @@ struct OverlayView: View {
                 }
             }
             Divider().gridCellColumns(2)
-            row("Exposure", [exposureMode(v), v["exposure_time"].map { ControlCatalog.format("exposure_time", $0) },
-                             v["gain"].map { "ISO \($0)" }].compactMap { $0 }.joined(separator: " · "))
-            row("Colour", [whiteBalanceMode(v), v["white_balance"].map { "\($0) K" }].compactMap { $0 }.joined(separator: " · "))
-            row("Focus", focus(v))
-            row("Image", [v["brightness"].map { "Brightness \($0)" }, v["zoom"].map { "Zoom " + ControlCatalog.format("zoom", $0) }]
-                .compactMap { $0 }.joined(separator: " · "))
-            row("Options", [v["backlight_compensation"].map { "HDR \($0 != 0 ? "on" : "off")" },
-                            v["power_line_frequency"].map(flicker), v["exposure_priority"].map { "Low-light \($0 != 0 ? "on" : "off")" }]
-                .compactMap { $0 }.joined(separator: " · "))
+            if live.camera.uvc == nil {
+                reported(live.metadata)
+            } else {
+                controlled(v)
+            }
             if model.smart.isEnabled, model.smartStatus != nil {
                 Divider().gridCellColumns(2)
                 GridRow { SmartStatusLabel().gridCellColumns(2) }
             }
         }
+    }
+
+    /// What a camera without controls, such as the Mac's built-in one, says its automatics chose.
+    @ViewBuilder private func reported(_ m: FrameMetadata?) -> some View {
+        row("Exposure", ["Auto", m?.exposureTime.map(ShutterSpeed.label(seconds:)), m?.iso.map { String(format: "ISO %.0f", $0) }]
+            .compactMap { $0 }.joined(separator: " · "))
+        row("Colour", ["Auto", m?.colorTemperature.map { "\($0) K" }].compactMap { $0 }.joined(separator: " · "))
+        if let lux = m?.lux { row("Light", "\(lux) lux") }
+    }
+
+    /// The UVC camera's current control values.
+    @ViewBuilder private func controlled(_ v: [String: Int]) -> some View {
+        row("Exposure", [exposureMode(v), v["exposure_time"].map { ControlCatalog.format("exposure_time", $0) },
+                         v["gain"].map { "ISO \($0)" }].compactMap { $0 }.joined(separator: " · "))
+        row("Colour", [whiteBalanceMode(v), v["white_balance"].map { "\($0) K" }].compactMap { $0 }.joined(separator: " · "))
+        row("Focus", focus(v))
+        row("Image", [v["brightness"].map { "Brightness \($0)" }, v["zoom"].map { "Zoom " + ControlCatalog.format("zoom", $0) }]
+            .compactMap { $0 }.joined(separator: " · "))
+        row("Options", [v["backlight_compensation"].map { "HDR \($0 != 0 ? "on" : "off")" },
+                        v["power_line_frequency"].map(flicker), v["exposure_priority"].map { "Low-light \($0 != 0 ? "on" : "off")" }]
+            .compactMap { $0 }.joined(separator: " · "))
     }
 
     private func row(_ label: String, _ value: String) -> some View {
