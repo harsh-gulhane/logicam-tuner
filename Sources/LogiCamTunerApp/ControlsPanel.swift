@@ -1,4 +1,4 @@
-import CamDialKit
+import LogiCamKit
 import SwiftUI
 
 /// Every control for the selected camera, Smart Auto options and presets. Shared by the main

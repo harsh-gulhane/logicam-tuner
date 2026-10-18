@@ -129,7 +129,7 @@ public enum ShutterSpeed {
 }
 
 /// Vendor extension units seen in Logitech webcams. Names follow public UVC driver projects;
-/// CamDial reports their presence but does not interpret or write them.
+/// LogiCam Tuner reports their presence but does not interpret or write them.
 public enum KnownExtensionUnits {
     public static let names: [UUID: String] = [
         "69678EE4-410F-40DB-A850-7420D7D8240E": "Logitech device information",

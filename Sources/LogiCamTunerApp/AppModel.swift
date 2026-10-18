@@ -1,17 +1,17 @@
 import AVFoundation
-import CamDialKit
+import LogiCamKit
 import Foundation
 import OSLog
 import ServiceManagement
 import SwiftUI
 
-/// Diagnostics go to the unified log (`log stream --predicate 'subsystem == "io.github.camdial"'`)
-/// and to ~/Library/Logs/CamDial.log, which users can attach to bug reports without admin rights.
+/// Diagnostics go to the unified log (`log stream --predicate 'subsystem == "io.github.logicamtuner"'`)
+/// and to ~/Library/Logs/LogiCamTuner.log, which users can attach to bug reports without admin rights.
 enum Diagnostics {
-    static let logger = Logger(subsystem: "io.github.camdial", category: "app")
+    static let logger = Logger(subsystem: "io.github.logicamtuner", category: "app")
     static let file = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Logs/CamDial.log")
-    private static let queue = DispatchQueue(label: "camdial.log")
+        .appendingPathComponent("Logs/LogiCamTuner.log")
+    private static let queue = DispatchQueue(label: "logicam.log")
 
     static func note(_ message: String) {
         logger.notice("\(message, privacy: .public)")
@@ -57,7 +57,7 @@ final class AppModel: ObservableObject {
     /// Views currently showing the live preview (the main window, the menu-bar panel).
     @Published private(set) var previewOwners: Set<String> = []
     var previewVisible: Bool { !previewOwners.isEmpty }
-    /// Frame rate CamDial asks for while it is the only app using the camera.
+    /// Frame rate LogiCam Tuner asks for while it is the only app using the camera.
     @Published var frameRate = UserDefaults.standard.object(forKey: "frameRate") as? Double ?? 60 {
         didSet {
             UserDefaults.standard.set(frameRate, forKey: "frameRate")
@@ -65,7 +65,7 @@ final class AppModel: ObservableObject {
             feed?.restart()
         }
     }
-    /// Resolution and measured frame rate of the stream, while CamDial is receiving it.
+    /// Resolution and measured frame rate of the stream, while LogiCam Tuner is receiving it.
     @Published private(set) var streamInfo: String?
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
     @Published var overlayMode = OverlayMode(rawValue: UserDefaults.standard.string(forKey: "overlayMode") ?? "")
@@ -92,7 +92,7 @@ final class AppModel: ObservableObject {
     private var nextProbe = Date.distantPast
     private var probing = false
     private let store = PresetStore()
-    private let io = DispatchQueue(label: "camdial.io")
+    private let io = DispatchQueue(label: "logicam.io")
     /// Latest requested value per control; slider drags coalesce into one write per I/O turn.
     private var pendingWrites: [String: Int] = [:]
     private var writeScheduled = false
@@ -195,7 +195,7 @@ final class AppModel: ObservableObject {
             setCameraInUse(feed.isStreamingSomewhere)
             return
         }
-        // CamDial's own stream makes the camera look busy. When streaming only for Smart Auto,
+        // LogiCam Tuner's own stream makes the camera look busy. When streaming only for Smart Auto,
         // pause now and then to see whether another app still is.
         guard !previewVisible, Date() >= nextProbe else { return }
         probing = true
@@ -230,7 +230,7 @@ final class AppModel: ObservableObject {
     }
 
     /// Streams only while the preview is open, or another app is streaming and Smart Auto or the
-    /// overlay (for the measured frame rate) needs frames, so CamDial never turns the camera light on by itself.
+    /// overlay (for the measured frame rate) needs frames, so LogiCam Tuner never turns the camera light on by itself.
     private func updateFeed() {
         guard let feed else { return }
         let wanted = previewVisible || ((smart.isEnabled || overlayMode != .off) && cameraInUse)
@@ -298,7 +298,7 @@ final class AppModel: ObservableObject {
         if ownershipChanged { reload() }
     }
 
-    /// When CamDial quits, return Smart Auto's features to the camera's own automatics so the
+    /// When LogiCam Tuner quits, return Smart Auto's features to the camera's own automatics so the
     /// camera is not left on frozen manual values. Smart Auto resumes on the next launch.
     private func handBackToCamera() {
         guard let camera, smart.isEnabled else { return }

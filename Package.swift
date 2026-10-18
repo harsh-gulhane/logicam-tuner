@@ -2,22 +2,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "CamDial",
+    name: "LogiCamTuner",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "CamDialKit", targets: ["CamDialKit"]),
-        .executable(name: "camdial", targets: ["camdial"]),
-        .executable(name: "CamDialApp", targets: ["CamDialApp"]),
+        .library(name: "LogiCamKit", targets: ["LogiCamKit"]),
+        .executable(name: "logicam", targets: ["logicam"]),
+        .executable(name: "LogiCamTunerApp", targets: ["LogiCamTunerApp"]),
     ],
     targets: [
         .target(
             name: "CUSBTransport",
             linkerSettings: [.linkedFramework("IOKit"), .linkedFramework("CoreFoundation")]
         ),
-        .target(name: "CamDialKit", dependencies: ["CUSBTransport"]),
-        .executableTarget(name: "camdial", dependencies: ["CamDialKit"]),
-        .executableTarget(name: "CamDialApp", dependencies: ["CamDialKit"]),
+        .target(name: "LogiCamKit", dependencies: ["CUSBTransport"]),
+        .executableTarget(name: "logicam", dependencies: ["LogiCamKit"]),
+        .executableTarget(name: "LogiCamTunerApp", dependencies: ["LogiCamKit"]),
         // Runs without XCTest/swift-testing, which Command Line Tools-only installs may lack.
-        .executableTarget(name: "CamDialKitChecks", dependencies: ["CamDialKit"], path: "Tests/CamDialKitChecks"),
+        .executableTarget(name: "LogiCamKitChecks", dependencies: ["LogiCamKit"], path: "Tests/LogiCamKitChecks"),
     ]
 )

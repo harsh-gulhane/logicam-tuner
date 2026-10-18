@@ -1,5 +1,5 @@
 import AppKit
-import CamDialKit
+import LogiCamKit
 import SwiftUI
 
 /// A small always-on-top panel showing the live stream. It never takes focus from the call app,
@@ -21,10 +21,10 @@ final class OverlayController {
         let host = NSHostingView(rootView: OverlayView(monitor: monitor).environmentObject(model))
         host.sizingOptions = [.preferredContentSize]
         panel.contentView = host
-        if !panel.setFrameUsingName("CamDialOverlay"), let screen = NSScreen.main?.visibleFrame {
+        if !panel.setFrameUsingName("LogiCamTunerOverlay"), let screen = NSScreen.main?.visibleFrame {
             panel.setFrameTopLeftPoint(NSPoint(x: screen.maxX - 320, y: screen.maxY - 20))
         }
-        panel.setFrameAutosaveName("CamDialOverlay")
+        panel.setFrameAutosaveName("LogiCamTunerOverlay")
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -76,9 +76,9 @@ struct OverlayView: View {
     }
 
     private var appName: String {
-        guard let live = monitor.live else { return model.selectedCamera?.name ?? "CamDial" }
+        guard let live = monitor.live else { return model.selectedCamera?.name ?? "LogiCam Tuner" }
         if let names = live.appNames { return names }
-        return model.cameraInUse ? "Unknown app" : "CamDial preview"
+        return model.cameraInUse ? "Unknown app" : "LogiCam Tuner preview"
     }
 
     private func details(_ live: LiveStream) -> some View {
@@ -111,7 +111,7 @@ struct OverlayView: View {
         }
     }
 
-    /// What CamDial's own connection receives, which matches what the camera delivers.
+    /// What LogiCam Tuner's own connection receives, which matches what the camera delivers.
     private func measured(_ live: LiveStream) -> String {
         guard let rate = live.measuredFrameRate else { return "—" }
         // With auto-exposure priority, long shutter times lower the delivered frame rate.

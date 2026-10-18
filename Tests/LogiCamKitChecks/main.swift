@@ -1,5 +1,5 @@
-// Offline checks for CamDialKit. Run with `swift run CamDialKitChecks`; exits non-zero on failure.
-@testable import CamDialKit
+// Offline checks for LogiCamKit. Run with `swift run LogiCamKitChecks`; exits non-zero on failure.
+@testable import LogiCamKit
 import CoreVideo
 import Foundation
 
@@ -93,7 +93,7 @@ check(!ControlDefinition.isAutomatic(gate: "focus_auto", value: 0), "manual focu
 
 // MARK: Preset storage
 
-let presetURL = FileManager.default.temporaryDirectory.appendingPathComponent("camdial-\(UUID()).json")
+let presetURL = FileManager.default.temporaryDirectory.appendingPathComponent("logicam-\(UUID()).json")
 defer { try? FileManager.default.removeItem(at: presetURL) }
 let store = PresetStore(url: presetURL)
 let camA = CameraInfo(registryID: 1, locationID: 1, vendorID: 0x046D, productID: 0x0893, firmware: 0x317,

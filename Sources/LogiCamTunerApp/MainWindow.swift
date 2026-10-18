@@ -1,5 +1,5 @@
 import AppKit
-import CamDialKit
+import LogiCamKit
 import SwiftUI
 
 /// The main window: a large live preview beside every control, so changes are visible as they are made.
@@ -15,7 +15,7 @@ struct MainView: View {
                 .frame(minWidth: 340, idealWidth: 390, maxWidth: 520)
         }
         .frame(minWidth: 880, minHeight: 560)
-        .navigationTitle(model.selectedCamera?.name ?? "CamDial")
+        .navigationTitle(model.selectedCamera?.name ?? "LogiCam Tuner")
         .toolbar { toolbar }
         .onAppear { model.setPreview(true, owner: "window") }
         .onDisappear { model.setPreview(false, owner: "window") }
@@ -26,7 +26,7 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { _ in
             model.setPreview(true, owner: "window")
         }
-        // Pause while another app is in front: the call app shows its own picture, and CamDial
+        // Pause while another app is in front: the call app shows its own picture, and LogiCam Tuner
         // can only tell which other apps use the camera while it is not streaming itself.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             model.setPreview(false, owner: "window")
@@ -45,7 +45,7 @@ struct MainView: View {
             } else if let feed = model.previewFeed {
                 PreviewView(feed: feed, mirrored: mirrored)
                 if !model.previewVisible {
-                    Label("Preview paused while CamDial is in the background", systemImage: "pause.circle")
+                    Label("Preview paused while LogiCam Tuner is in the background", systemImage: "pause.circle")
                         .foregroundStyle(.white.opacity(0.8))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -95,7 +95,9 @@ struct MainView: View {
                             ForEach(OverlayMode.allCases) { Text($0.rawValue).tag($0) }
                         }
                         Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: model.setLaunchAtLogin))
-                        Text("Closing this window keeps CamDial in the menu bar, so Smart Auto keeps working.")
+                        Text("Closing this window keeps LogiCam Tuner in the menu bar, so Smart Auto keeps working.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text("Unofficial community app, not affiliated with Logitech.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(4)
@@ -134,14 +136,14 @@ struct MenuView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(model.selectedCamera?.name ?? "CamDial").font(.headline)
+                    Text(model.selectedCamera?.name ?? "LogiCam Tuner").font(.headline)
                     CameraUsersLabel(monitor: model.liveMonitor)
                 }
                 Spacer()
                 Button {
-                    openWindow(id: CamDialApp.mainWindowID)
+                    openWindow(id: LogiCamTunerApp.mainWindowID)
                     NSApp.activate(ignoringOtherApps: true)
-                } label: { Label("Open CamDial", systemImage: "macwindow") }
+                } label: { Label("Open LogiCam Tuner", systemImage: "macwindow") }
                     .help("Open the main window with a large live preview")
             }
             if model.selectedCamera != nil {
@@ -159,7 +161,7 @@ struct MenuView: View {
             HStack {
                 Button("Reset to defaults") { model.resetToDefaults() }.disabled(model.selectedCamera == nil)
                 Spacer()
-                Button("Quit CamDial") { NSApplication.shared.terminate(nil) }
+                Button("Quit LogiCam Tuner") { NSApplication.shared.terminate(nil) }
             }
         }
         .padding(12)

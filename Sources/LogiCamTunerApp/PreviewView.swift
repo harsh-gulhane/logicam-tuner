@@ -1,5 +1,5 @@
 import AVFoundation
-import CamDialKit
+import LogiCamKit
 import SwiftUI
 
 /// Live preview of the selected camera at the stream's full resolution. The app model starts and

@@ -21,7 +21,7 @@ directly), derived (read from shipped code or data) or inferred.
 - **Observed.** A read-only GET from an unsigned client connected but got no reply.
   **Inferred.** The agent logs each client's PID, path and signing status and contains a
   Logitech code-signing requirement, so it likely ignores clients not signed by Logitech.
-  CamDial therefore does not use this socket.
+  LogiCam Tuner therefore does not use this socket.
 
 ## Talking to the camera
 
@@ -30,7 +30,7 @@ directly), derived (read from shipped code or data) or inferred.
   Control interface (class 0x0E, subclass 0x01). Apple's `UVCAssistant` holds the same
   interface for streaming.
 - **Inferred.** The agent therefore sends UVC class control requests through IOKit,
-  the same path CamDial uses.
+  the same path LogiCam Tuner uses.
 - **Observed.** The StreamCam advertises a camera terminal (unit 1), a processing unit
   (unit 3) and six extension units:
 
@@ -60,9 +60,9 @@ directly), derived (read from shipped code or data) or inferred.
   `white_balance_compensation`, `exposure_compensation`, ...), but no `hdr` method. It does have
   `backlight_compensation` with a `BacklightCompensation` type.
 - **Inferred.** HDR on the StreamCam is the UVC backlight compensation control, which the camera
-  reports as a 0...1 switch. CamDial labels it "HDR (backlight compensation)".
+  reports as a 0...1 switch. LogiCam Tuner labels it "HDR (backlight compensation)".
 
-## Camera behaviour measured with `camdial auto --watch`
+## Camera behaviour measured with `logicam auto --watch`
 
 - **Observed.** White-balance temperature changes the image as expected: average warmth rose from
   -0.39 at 2800 K to +0.92 at 6500 K. One unit of warmth corresponded to 90-200 mired.
@@ -75,7 +75,7 @@ directly), derived (read from shipped code or data) or inferred.
 - **Observed.** `AVCaptureDevice.isInUseByAnotherApplication` stayed false while other processes
   streamed from the camera; CoreMediaIO's `kCMIODevicePropertyDeviceIsRunningSomewhere` reported it.
 
-## Behaviour seen while testing CamDial
+## Behaviour seen while testing LogiCam Tuner
 
 - **Observed.** Standard control writes succeed while Options+ is running, and values
   persisted for at least 12 s while the camera was idle.

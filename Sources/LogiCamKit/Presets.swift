@@ -51,9 +51,7 @@ public final class PresetStore: @unchecked Sendable {
     private let lock = NSLock()
 
     public init(url: URL? = nil) {
-        self.url = url ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("CamDial", isDirectory: true)
-            .appendingPathComponent("presets.json")
+        self.url = url ?? AppSupport.directory.appendingPathComponent("presets.json")
     }
 
     public func presets(for camera: CameraInfo) -> [String: Preset] {

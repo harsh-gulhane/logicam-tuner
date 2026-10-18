@@ -31,7 +31,7 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     public var onFrame: ((CVPixelBuffer) -> Void)?
     /// Diagnostic messages, called on the feed's queue.
     public var onLog: ((String) -> Void)?
-    /// Frame rate to ask for when CamDial is the only client. Another app's stream is never changed.
+    /// Frame rate to ask for when LogiCam Tuner is the only client. Another app's stream is never changed.
     public var preferredFrameRate: Double {
         get { lock.withLock { _preferredFrameRate } }
         set { lock.withLock { _preferredFrameRate = newValue } }
@@ -41,7 +41,7 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     private let lock = NSLock()
     private var _preferredFrameRate = 30.0
     private var frameTimes: [Double] = []
-    private let queue = DispatchQueue(label: "camdial.feed")
+    private let queue = DispatchQueue(label: "logicam.feed")
     private let output = AVCaptureVideoDataOutput()
     private var displayLayers: [AVSampleBufferDisplayLayer] = []
 

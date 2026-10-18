@@ -1,7 +1,7 @@
-import CamDialKit
+import LogiCamKit
 import Foundation
 
-/// What the camera is doing right now while an app (or CamDial's preview) is streaming.
+/// What the camera is doing right now while an app (or LogiCam Tuner's preview) is streaming.
 struct LiveStream: Equatable {
     /// Apps believed to be using the camera; empty when unknown.
     var apps: [CameraUser] = []
@@ -9,7 +9,7 @@ struct LiveStream: Equatable {
     var width: Int32 = 0
     var height: Int32 = 0
     var configuredFrameRate: Double = 0
-    /// Measured by CamDial's own connection to the stream; nil until it has frames.
+    /// Measured by LogiCam Tuner's own connection to the stream; nil until it has frames.
     var measuredFrameRate: Double?
     var pixelFormat = ""
     /// Current camera control values, read once a second.
@@ -45,8 +45,7 @@ struct CameraSession: Codable, Identifiable, Equatable {
 /// The last sessions, as JSON next to the presets.
 struct SessionStore {
     static let limit = 30
-    let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("CamDial", isDirectory: true).appendingPathComponent("sessions.json")
+    let url = AppSupport.directory.appendingPathComponent("sessions.json")
 
     func load() -> [CameraSession] {
         guard let data = try? Data(contentsOf: url) else { return [] }

@@ -79,12 +79,12 @@ public struct ControlState: Equatable, Sendable {
     public let defaultValue: Int?
     public let info: ControlInfo
     /// True when the gating auto control is on. Many cameras report GET_INFO's "disabled by automatic
-    /// mode" bit statically, so CamDial derives this from the gating control's current value instead.
+    /// mode" bit statically, so LogiCam Tuner derives this from the gating control's current value instead.
     public let lockedByAutomaticMode: Bool
 
     public var isWritable: Bool { info.contains(.set) && !lockedByAutomaticMode }
 
-    /// The same control with a newer current value, e.g. one CamDial just wrote.
+    /// The same control with a newer current value, e.g. one LogiCam Tuner just wrote.
     public func with(current: Int) -> ControlState {
         ControlState(control: control, current: current, minimum: minimum, maximum: maximum, resolution: resolution,
                      defaultValue: defaultValue, info: info, lockedByAutomaticMode: lockedByAutomaticMode)

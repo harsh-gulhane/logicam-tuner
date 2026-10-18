@@ -1,4 +1,4 @@
-import CamDialKit
+import LogiCamKit
 import SwiftUI
 
 /// Groups controls the way people think about a webcam rather than by UVC unit.

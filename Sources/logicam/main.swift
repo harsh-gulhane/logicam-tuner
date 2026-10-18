@@ -1,9 +1,9 @@
 import AVFoundation
-import CamDialKit
+import LogiCamKit
 import Foundation
 
 let usage = """
-usage: camdial <command> [options]
+usage: logicam <command> [options]
 
 commands:
   list                         list attached UVC cameras
@@ -59,7 +59,7 @@ func selectCamera() throws -> Camera {
         } else if let match = cameras.first(where: { $0.serial == selector }) {
             info = match
         } else {
-            throw CLIError(description: "no camera matches \(selector); run `camdial list`")
+            throw CLIError(description: "no camera matches \(selector); run `logicam list`")
         }
     } else {
         info = cameras.first(where: \.isLogitech) ?? cameras[0]
@@ -242,7 +242,7 @@ func runSmartAuto() throws {
     guard let feed = CameraFeed(camera.info) else { throw CLIError(description: "AVFoundation cannot open \(camera.info.name)") }
 
     if let fps { feed.preferredFrameRate = fps }
-    let smart = SmartAuto(camera: camera, feed: feed, io: DispatchQueue(label: "camdial.io"))
+    let smart = SmartAuto(camera: camera, feed: feed, io: DispatchQueue(label: "logicam.io"))
     var settings = SmartAutoSettings()
     settings.exposure = !watch && (features.isEmpty || features.contains("exposure"))
     settings.whiteBalance = !watch && (features.isEmpty || features.contains("white-balance"))
@@ -280,6 +280,6 @@ func runSmartAuto() throws {
 do {
     try run()
 } catch {
-    FileHandle.standardError.write(Data("camdial: \(error)\n".utf8))
+    FileHandle.standardError.write(Data("logicam: \(error)\n".utf8))
     exit(1)
 }

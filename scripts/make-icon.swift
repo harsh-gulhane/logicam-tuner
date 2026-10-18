@@ -1,4 +1,4 @@
-// Renders CamDial's app icon (1024 px PNG) with AppKit; used by build-app.sh.
+// Renders LogiCam Tuner's app icon (1024 px PNG) with AppKit; used by build-app.sh.
 import AppKit
 
 let size = 1024.0

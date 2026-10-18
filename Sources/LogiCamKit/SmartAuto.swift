@@ -68,7 +68,7 @@ public final class SmartAuto: @unchecked Sendable {
     private var _settings = SmartAutoSettings()
 
     /// Serializes the controller state below between frame callbacks and camera refreshes.
-    private let state = DispatchQueue(label: "camdial.smartauto")
+    private let state = DispatchQueue(label: "logicam.smartauto")
     private var exposureController = ExposureController()
     private var whiteBalanceController = WhiteBalanceController()
     private var limits: CameraLimits?
