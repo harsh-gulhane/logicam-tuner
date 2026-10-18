@@ -187,6 +187,15 @@ public final class Camera: @unchecked Sendable {
 
     public func read(_ id: String) throws -> ControlState { try read(control(id)) }
 
+    /// Current values only (one GET_CUR each), for cheap live polling. Unsupported or failing controls are omitted.
+    public func currentValues(_ ids: [String]) -> [String: Int] {
+        ids.reduce(into: [:]) { values, id in
+            guard let control = try? control(id),
+                  let bytes = try? transfer(control, .getCurrent, length: control.definition.length) else { return }
+            values[id] = WireCodec.decode(bytes, control.definition)
+        }
+    }
+
     private func isLocked(_ d: ControlDefinition) throws -> Bool {
         guard let gateID = d.automaticControlID, let gate = controls.first(where: { $0.id == gateID }) else { return false }
         let value = WireCodec.decode(try transfer(gate, .getCurrent, length: gate.definition.length), gate.definition)

@@ -29,6 +29,8 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     public let device: AVCaptureDevice
     /// Called on the feed's queue with each full-resolution frame; return quickly.
     public var onFrame: ((CVPixelBuffer) -> Void)?
+    /// Diagnostic messages, called on the feed's queue.
+    public var onLog: ((String) -> Void)?
     /// Frame rate to ask for when CamDial is the only client. Another app's stream is never changed.
     public var preferredFrameRate: Double {
         get { lock.withLock { _preferredFrameRate } }
@@ -54,6 +56,11 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         ]
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: queue)
+        NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session,
+                                               queue: nil) { [weak self] note in
+            let error = note.userInfo?[AVCaptureSessionErrorKey] as? Error
+            self?.onLog?("capture session error: \(error.map { "\($0)" } ?? "unknown")")
+        }
     }
 
     private let input: AVCaptureDeviceInput
@@ -125,6 +132,7 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
             if session.outputs.isEmpty, session.canAddOutput(output) { session.addOutput(output) }
             session.commitConfiguration()
             session.startRunning()
+            if !session.isRunning { onLog?("capture session did not start") }
         }
     }
 
@@ -143,8 +151,19 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         return candidates.max { $0.2 < $1.2 }.map { ($0.0, $0.1) }
     }
 
-    /// Resolution of the stream the camera is delivering.
+    /// Resolution of the stream the camera is delivering. The format is device-wide, so this is also
+    /// what another app streaming from the camera has configured.
     public var dimensions: CMVideoDimensions { device.activeFormat.formatDescription.dimensions }
+
+    /// The frame rate the active configuration asks for. Long exposures with auto-exposure priority
+    /// can deliver fewer frames; see `measuredFrameRate`.
+    public var configuredFrameRate: Double { 1 / frameDuration }
+
+    /// FourCC of the active format, e.g. "420v" or "yuvs".
+    public var pixelFormat: String {
+        let code = device.activeFormat.formatDescription.mediaSubType.rawValue
+        return String(bytes: withUnsafeBytes(of: code.bigEndian, Array.init), encoding: .ascii) ?? "?"
+    }
 
     /// Restarts streaming so a new `preferredFrameRate` takes effect.
     public func restart() {

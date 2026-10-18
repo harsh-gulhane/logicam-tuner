@@ -269,6 +269,14 @@ let ycbcrAmber = FrameAnalyzer.analyze(ycbcrFrame(180, 128, 90))
 check(ycbcrAmber.map { abs($0.averageCast.warmth - amber.averageCast.warmth) < 0.05 } == true,
       "native YCbCr frames measure like BGRA (amber)")
 
+// MARK: Camera users
+
+check(CameraUsers.outermostApp("/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper (Alerts).app/Contents/MacOS/x")
+      == "/Applications/Google Chrome.app", "a helper belongs to its outermost app")
+check(CameraUsers.outermostApp("/System/Applications/FaceTime.app") == "/System/Applications/FaceTime.app", "an app bundle path")
+check(CameraUsers.outermostApp("/usr/libexec/avconferenced") == nil, "a daemon has no app bundle")
+check(CameraUsers.daemonOwners["avconferenced"]?.name == "FaceTime", "FaceTime's conferencing daemon maps to FaceTime")
+
 // MARK: Smart Auto settings
 
 let decoded = try JSONDecoder().decode(SmartAutoSettings.self, from: Data("{\"exposure\": true}".utf8))

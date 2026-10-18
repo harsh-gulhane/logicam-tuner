@@ -5,8 +5,32 @@ import OSLog
 import ServiceManagement
 import SwiftUI
 
-/// Diagnostics: `log stream --predicate 'subsystem == "io.github.camdial"'`.
-private let log = Logger(subsystem: "io.github.camdial", category: "app")
+/// Diagnostics go to the unified log (`log stream --predicate 'subsystem == "io.github.camdial"'`)
+/// and to ~/Library/Logs/CamDial.log, which users can attach to bug reports without admin rights.
+enum Diagnostics {
+    static let logger = Logger(subsystem: "io.github.camdial", category: "app")
+    static let file = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Logs/CamDial.log")
+    private static let queue = DispatchQueue(label: "camdial.log")
+
+    static func note(_ message: String) {
+        logger.notice("\(message, privacy: .public)")
+        let line = "\(Date().formatted(.iso8601)) \(message)\n"
+        queue.async {
+            // Start over past 1 MB so the file cannot grow without bound.
+            if let size = try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int, size > 1_000_000 {
+                try? FileManager.default.removeItem(at: file)
+            }
+            if let handle = try? FileHandle(forWritingTo: file) {
+                handle.seekToEndOfFile()
+                handle.write(Data(line.utf8))
+                try? handle.close()
+            } else {
+                try? Data(line.utf8).write(to: file)
+            }
+        }
+    }
+}
 
 /// Who decides exposure or white balance.
 enum AutoMode: String, CaseIterable, Identifiable {
@@ -44,6 +68,19 @@ final class AppModel: ObservableObject {
     /// Resolution and measured frame rate of the stream, while CamDial is receiving it.
     @Published private(set) var streamInfo: String?
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @Published var overlayMode = OverlayMode(rawValue: UserDefaults.standard.string(forKey: "overlayMode") ?? "")
+        ?? .whileInUse {
+        didSet {
+            UserDefaults.standard.set(overlayMode.rawValue, forKey: "overlayMode")
+            overlayDismissed = false
+            updateOverlay()
+            updateFeed()
+        }
+    }
+    let liveMonitor = LiveMonitor()
+    private var overlay: OverlayController?
+    /// The overlay was closed for the current camera session.
+    private var overlayDismissed = false
 
     private var camera: Camera?
     private var feed: CameraFeed?
@@ -138,6 +175,7 @@ final class AppModel: ObservableObject {
     private func attachFeed(_ camera: Camera) {
         guard let feed = CameraFeed(camera.info) else { return }
         feed.preferredFrameRate = frameRate
+        feed.onLog = { message in Diagnostics.note(message) }
         let smartAuto = SmartAuto(camera: camera, feed: feed, io: io)
         smartAuto.onStatus = { [weak self] status in self?.apply(status) }
         smartAuto.settings = smart
@@ -150,6 +188,8 @@ final class AppModel: ObservableObject {
 
     private func pollUsage() {
         updateStreamInfo()
+        liveMonitor.update(feed: feed, camera: camera, active: cameraInUse || previewVisible, otherApp: cameraInUse, io: io)
+        updateOverlay()
         guard let feed, !probing else { return }
         guard feed.isRunning else {
             setCameraInUse(feed.isStreamingSomewhere)
@@ -164,6 +204,7 @@ final class AppModel: ObservableObject {
             guard let self, self.feed === feed else { return }
             self.probing = false
             self.nextProbe = Date() + 20
+            Diagnostics.note("probe: camera streaming elsewhere \(feed.isStreamingSomewhere)")
             self.setCameraInUse(feed.isStreamingSomewhere)
             self.updateFeed()
         }
@@ -181,26 +222,40 @@ final class AppModel: ObservableObject {
 
     private func setCameraInUse(_ inUse: Bool) {
         guard inUse != cameraInUse else { return }
-        log.notice("camera in use by another app: \(inUse)")
+        Diagnostics.note("camera in use by another app: \(inUse)")
         cameraInUse = inUse
-        if inUse { nextProbe = Date() + 20 }
+        if inUse { nextProbe = Date() + 20 } else { overlayDismissed = false }
         updateFeed()
+        updateOverlay()
     }
 
-    /// Streams only while the preview is open or Smart Auto has a video app to serve, so CamDial
-    /// never turns the camera light on by itself.
+    /// Streams only while the preview is open, or another app is streaming and Smart Auto or the
+    /// overlay (for the measured frame rate) needs frames, so CamDial never turns the camera light on by itself.
     private func updateFeed() {
         guard let feed else { return }
-        let wanted = previewVisible || (smart.isEnabled && cameraInUse)
+        let wanted = previewVisible || ((smart.isEnabled || overlayMode != .off) && cameraInUse)
         guard wanted else {
-            if feed.isRunning { log.notice("stopping capture") }
+            if feed.isRunning { Diagnostics.note("stopping capture: preview \(previewVisible), in use \(cameraInUse)") }
             feed.stop()
             return
         }
         withCameraAccess { granted in
-            log.notice("starting capture: preview \(self.previewVisible), smart \(self.smart.isEnabled), access \(granted)")
+            Diagnostics.note("starting capture: preview \(self.previewVisible), smart \(self.smart.isEnabled), access \(granted)")
             if granted { feed.start() } else { self.errorMessage = "Allow camera access in System Settings → Privacy & Security → Camera." }
         }
+    }
+
+    // MARK: Overlay
+
+    func dismissOverlay() {
+        overlayDismissed = true
+        updateOverlay()
+    }
+
+    private func updateOverlay() {
+        let show = overlayMode == .always || (overlayMode == .whileInUse && cameraInUse && !overlayDismissed)
+        if show, overlay == nil { overlay = OverlayController(model: self, monitor: liveMonitor) }
+        overlay?.setVisible(show)
     }
 
     private func withCameraAccess(_ body: @escaping @MainActor (Bool) -> Void) {
@@ -214,8 +269,8 @@ final class AppModel: ObservableObject {
     }
 
     private func apply(_ status: SmartAutoStatus) {
-        if status.problem != smartStatus?.problem, let problem = status.problem { log.error("smart auto: \(problem)") }
-        if status.needsMoreLight != smartStatus?.needsMoreLight { log.notice("smart auto needs more light: \(status.needsMoreLight)") }
+        if status.problem != smartStatus?.problem, let problem = status.problem { Diagnostics.note("smart auto: \(problem)") }
+        if status.needsMoreLight != smartStatus?.needsMoreLight { Diagnostics.note("smart auto needs more light: \(status.needsMoreLight)") }
         // Publishing redraws every control, so only publish real changes.
         if status != smartStatus { smartStatus = status }
         // Show Smart Auto's values live without re-reading the camera.

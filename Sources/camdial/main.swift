@@ -15,6 +15,7 @@ commands:
   preset apply <name>          apply a saved preset
   preset list                  list saved presets
   preset delete <name>         delete a preset
+  who                          show whether the camera is streaming and which app is likely using it
   auto [features] [options]    run Smart Auto until interrupted (turns the camera on)
       features: exposure, white-balance (both when none given)
       --bias <ev>                exposure compensation, e.g. -0.5
@@ -196,6 +197,18 @@ func run() throws {
             try store.delete(named: name, for: camera.info)
         default:
             throw CLIError(description: "unknown preset command \(sub)")
+        }
+    case "who":
+        let camera = try selectCamera()
+        let streaming = CameraFeed(camera.info)?.isStreamingSomewhere ?? false
+        print("\(camera.info.name): \(streaming ? "streaming" : "idle")")
+        let capturing = CameraUsers.audioCapturingApps()
+        print("apps capturing audio: " + (capturing.isEmpty ? "none" : capturing.map { $0.name }.joined(separator: ", ")))
+        if streaming {
+            let users = CameraUsers.likelyUsers()
+            print("likely camera users: " + (users.isEmpty ? "unknown" : users.map {
+                "\($0.name) (\($0.evidence == .microphone ? "also using the microphone" : "frontmost camera app"))"
+            }.joined(separator: ", ")))
         }
     case "auto":
         try runSmartAuto()

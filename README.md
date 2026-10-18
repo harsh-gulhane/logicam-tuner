@@ -37,6 +37,26 @@ preview runs at 1080p and 30 or 60 fps, shows the measured frame rate, can be mi
 video-call self-view, and it stops (camera light off) when the
 window is closed, minimised or hidden.
 
+## Stream overlay
+
+A small floating panel shows, while any app uses the camera:
+
+- which apps are using it (e.g. "Google Chrome", "FaceTime", "WhatsApp"),
+- the resolution, configured frame rate and the frame rate actually delivered, and the pixel format,
+- exposure (mode, shutter, ISO), white balance, focus, brightness, zoom, HDR, anti-flicker and low-light boost,
+- Smart Auto's status and how long the camera has been on.
+
+It stays above other windows, appears on every Space and over full-screen apps, never takes focus
+from the call, and can be dragged anywhere. Choose Off / While an app uses the camera / Always in the
+App section or the menu-bar panel. The main window keeps a list of recent camera sessions so you can
+compare how Meet, WhatsApp and FaceTime configure the camera; `camdial who` prints the same from the
+terminal.
+
+macOS has no public API that names the apps using a camera. CamDial reports the apps that are
+capturing the microphone while the camera runs, as call apps do, and otherwise the frontmost app
+known to use cameras (marked with "?"). An app using the camera with its microphone fully off is
+shown as "Unknown app". Resolution and frame rate are the camera's: apps may scale the picture further.
+
 A menu-bar icon gives quick access to the same controls. Closing the window keeps CamDial running
 there, so Smart Auto keeps working; quit from the menu-bar icon.
 
@@ -115,8 +135,11 @@ Use `--camera <index|serial>` when several cameras are attached and `--json` for
 - **Logitech-only features.** Auto-framing (RightSight) and Show Mode use vendor extension units whose
   protocol is not public. CamDial lists those units but does not drive them. On the StreamCam, Options+
   offers no other image controls.
-- **Diagnostics.** `log stream --predicate 'subsystem == "io.github.camdial"'` shows when Smart Auto
-  starts and stops.
+- **Diagnostics.** `~/Library/Logs/CamDial.log` (also `log stream --predicate 'subsystem == "io.github.camdial"'`)
+  records when capture starts and stops, each stream's format and measured frame rate, and session summaries.
+- **Preview in the background.** The preview pauses while CamDial is not the active app: the call app
+  shows its own picture, and CamDial can only tell which other apps use the camera while it is not
+  streaming itself.
 
 ## Tested hardware
 

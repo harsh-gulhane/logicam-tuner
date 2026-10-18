@@ -26,10 +26,12 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { _ in
             model.setPreview(true, owner: "window")
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didHideNotification)) { _ in
+        // Pause while another app is in front: the call app shows its own picture, and CamDial
+        // can only tell which other apps use the camera while it is not streaming itself.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             model.setPreview(false, owner: "window")
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didUnhideNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.setPreview(true, owner: "window")
         }
     }
@@ -42,6 +44,11 @@ struct MainView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let feed = model.previewFeed {
                 PreviewView(feed: feed, mirrored: mirrored)
+                if !model.previewVisible {
+                    Label("Preview paused while CamDial is in the background", systemImage: "pause.circle")
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
             VStack(alignment: .leading, spacing: 6) {
                 if let error = model.errorMessage {
@@ -74,6 +81,7 @@ struct MainView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if model.selectedCamera != nil { ControlsPanel() }
+                SessionsView(monitor: model.liveMonitor)
                 GroupBox("App") {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Mirror preview", isOn: $mirrored)
@@ -83,6 +91,9 @@ struct MainView: View {
                         }
                         Text("Video apps choose their own resolution and frame rate. While one is using the camera, the preview shows that stream unchanged. Shutter speeds longer than one frame (1/60 s at 60 fps) lower the frame rate when Low-light boost is on.")
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Picker("Stream overlay", selection: $model.overlayMode) {
+                            ForEach(OverlayMode.allCases) { Text($0.rawValue).tag($0) }
+                        }
                         Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: model.setLaunchAtLogin))
                         Text("Closing this window keeps CamDial in the menu bar, so Smart Auto keeps working.")
                             .font(.caption).foregroundStyle(.secondary)
@@ -122,7 +133,10 @@ struct MenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(model.selectedCamera?.name ?? "CamDial").font(.headline)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(model.selectedCamera?.name ?? "CamDial").font(.headline)
+                    CameraUsersLabel(monitor: model.liveMonitor)
+                }
                 Spacer()
                 Button {
                     openWindow(id: CamDialApp.mainWindowID)
@@ -138,6 +152,10 @@ struct MenuView: View {
             if let error = model.errorMessage {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(3)
             }
+            Picker("Overlay", selection: $model.overlayMode) {
+                ForEach(OverlayMode.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .font(.caption)
             HStack {
                 Button("Reset to defaults") { model.resetToDefaults() }.disabled(model.selectedCamera == nil)
                 Spacer()
@@ -146,5 +164,19 @@ struct MenuView: View {
         }
         .padding(12)
         .frame(width: 370)
+    }
+}
+
+/// "In use by …" for the menu-bar panel.
+struct CameraUsersLabel: View {
+    @ObservedObject var monitor: LiveMonitor
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        if model.cameraInUse {
+            let names = monitor.live?.appNames
+            Text(names.map { "In use by \($0)" + (monitor.live?.appsAreGuess == true ? "?" : "") } ?? "In use by another app")
+                .font(.caption).foregroundStyle(.green).lineLimit(2)
+        }
     }
 }
