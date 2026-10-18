@@ -76,7 +76,7 @@ struct OverlayView: View {
     }
 
     private var appName: String {
-        guard let live = monitor.live else { return model.selectedCamera?.name ?? "LogiCam Tuner" }
+        guard let live = monitor.live else { return "LogiCam Tuner" }
         if let names = live.appNames { return names }
         return model.cameraInUse ? "Unknown app" : "LogiCam Tuner preview"
     }

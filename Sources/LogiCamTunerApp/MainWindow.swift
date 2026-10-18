@@ -15,7 +15,8 @@ struct MainView: View {
                 .frame(minWidth: 340, idealWidth: 390, maxWidth: 520)
         }
         .frame(minWidth: 880, minHeight: 560)
-        .navigationTitle(model.selectedCamera?.name ?? "LogiCam Tuner")
+        .navigationTitle("LogiCam Tuner")
+        .navigationSubtitle(model.selectedCamera?.name ?? "No camera")
         .toolbar { toolbar }
         .onAppear { model.setPreview(true, owner: "window") }
         .onDisappear { model.setPreview(false, owner: "window") }
@@ -136,7 +137,8 @@ struct MenuView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(model.selectedCamera?.name ?? "LogiCam Tuner").font(.headline)
+                    Text("LogiCam Tuner").font(.headline)
+                    if let camera = model.selectedCamera { Text(camera.name).font(.caption).foregroundStyle(.secondary) }
                     CameraUsersLabel(monitor: model.liveMonitor)
                 }
                 Spacer()
