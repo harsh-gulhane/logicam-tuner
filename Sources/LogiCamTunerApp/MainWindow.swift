@@ -100,7 +100,7 @@ struct MainView: View {
                         Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: model.setLaunchAtLogin))
                         Text("Closing this window keeps LogiCam Tuner in the menu bar, so Smart Auto keeps working.")
                             .font(.caption).foregroundStyle(.secondary)
-                        Text("Unofficial community app, not affiliated with Logitech.")
+                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development build") · unofficial community app, not affiliated with Logitech.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(4)

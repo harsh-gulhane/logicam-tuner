@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the tag matches VERSION
+        run: |
+          if [ "v$(cat VERSION)" != "$GITHUB_REF_NAME" ]; then
+            echo "VERSION says $(cat VERSION) but the tag is $GITHUB_REF_NAME"; exit 1
+          fi
+      - name: Offline checks
+        run: swift run LogiCamKitChecks
+      - name: Build the app and zip
+        run: ./scripts/build-app.sh --zip
+      - name: Release notes
+        run: |
+          version=$(cat VERSION)
+          awk -v v="$version" 'index($0, "## [" v "]") == 1 {on=1; next} /^## \[/ {on=0} on' CHANGELOG.md > notes.md
+          cat >> notes.md <<'NOTES'
+
+          ## Install
+
+          ```sh
+          brew install --cask harsh-gulhane/tap/logicam-tuner
+          ```
+
+          or download the zip below and move **LogiCam Tuner.app** to Applications. The app is not notarized
+          by Apple, so on first launch macOS blocks it once: open **System Settings → Privacy & Security** and
+          click **Open Anyway**. See the README for details.
+          NOTES
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/LogiCam-Tuner-*.zip build/LogiCam-Tuner-*.zip.sha256 \
+            --title "LogiCam Tuner $(cat VERSION)" --notes-file notes.md

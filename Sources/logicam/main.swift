@@ -27,12 +27,23 @@ commands:
       --watch                    only print measurements; change nothing
       --fps <n>                  frame rate to request when no other app is streaming (default 30)
 
+  version                      print the version
+
 options:
   --camera <index|serial>      choose a camera (default: first Logitech camera, else first camera)
   --json                       machine-readable output for list/get
 """
 
 struct CLIError: Error, CustomStringConvertible { let description: String }
+
+/// The version of the app bundle this binary ships in ("LogiCam Tuner.app/Contents/MacOS/logicam"),
+/// stamped from the VERSION file by the build script. Homebrew links the binary into its bin
+/// directory, so the symlink is resolved first; a plain `swift build` binary has no bundle.
+let appVersion: String = {
+    let executable = URL(fileURLWithPath: Bundle.main.executablePath ?? CommandLine.arguments[0]).resolvingSymlinksInPath()
+    let app = executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    return Bundle(url: app)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development build"
+}()
 
 var args = Array(CommandLine.arguments.dropFirst())
 func takeOption(_ name: String) -> String? {
@@ -212,6 +223,8 @@ func run() throws {
         }
     case "auto":
         try runSmartAuto()
+    case "version", "--version", "-v":
+        print("logicam \(appVersion)")
     case "help", "-h", "--help":
         print(usage)
     default:

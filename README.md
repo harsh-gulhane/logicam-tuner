@@ -4,6 +4,10 @@
 smarter auto exposure and white balance, a sharp live preview, a live stream-stats overlay, and a fix
 for WhatsApp's 5 fps video.
 
+[![Release](https://img.shields.io/github/v/release/harsh-gulhane/logicam-tuner)](https://github.com/harsh-gulhane/logicam-tuner/releases/latest)
+[![CI](https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml/badge.svg)](https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 > Unofficial community project, not made, affiliated with or endorsed by Logitech.
 > See [Trademarks and disclaimer](#trademarks-and-disclaimer).
 
@@ -111,33 +115,62 @@ quits, the camera's own automatics are switched back on; Smart Auto resumes at t
 
 ## Install
 
-Requires macOS 14 or later and Swift 5.10+ (Xcode or the Command Line Tools).
+### Homebrew (recommended)
 
 ```sh
+brew install --cask harsh-gulhane/tap/logicam-tuner
+```
+
+This puts **LogiCam Tuner.app** in Applications and the `logicam` command on your PATH. Update with
+`brew upgrade --cask logicam-tuner`.
+
+**First launch.** LogiCam Tuner is free and open source, and is not notarized by Apple (that needs a
+paid developer account), so macOS blocks it the first time:
+
+1. Open LogiCam Tuner. macOS says it "could not verify" the app; click **Done**.
+2. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to
+   LogiCam Tuner. Confirm with your password.
+3. Open the app again. macOS asks for camera access the first time the preview or Smart Auto needs video.
+
+Alternatively, run `xattr -dr com.apple.quarantine "/Applications/LogiCam Tuner.app"` once, which also
+clears the block for the `logicam` command. macOS may ask again after an update.
+
+### Download
+
+Download `LogiCam-Tuner-<version>.zip` from the [latest release](https://github.com/harsh-gulhane/logicam-tuner/releases/latest),
+unzip it, move **LogiCam Tuner.app** to Applications and follow the first-launch steps above. The
+`logicam` command is inside the app at `LogiCam Tuner.app/Contents/MacOS/logicam`.
+
+### Build from source
+
+Requires macOS 14 or later and Swift 5.10+ (Xcode or the Command Line Tools). Apps you build yourself
+are not blocked by macOS.
+
+```sh
+git clone https://github.com/harsh-gulhane/logicam-tuner.git
+cd logicam-tuner
 ./scripts/build-app.sh          # builds "build/LogiCam Tuner.app" (universal, ad-hoc signed)
 open "build/LogiCam Tuner.app"
 ```
 
-Copy `build/LogiCam Tuner.app` to `/Applications` to keep it. Because the build is ad-hoc signed,
-another Mac will warn on first launch; right-click → Open. macOS asks for camera access the first
-time Smart Auto or the preview needs video.
-
 ## CLI
 
+Installed with the app (Homebrew links it as `logicam`). From a source checkout, use
+`swift run logicam <command>` or the copy inside the built app.
+
 ```sh
-swift build -c release --product logicam
-LOGICAM=$(swift build -c release --show-bin-path)/logicam
-$LOGICAM list
-$LOGICAM describe
-$LOGICAM get
-$LOGICAM set brightness=140 white_balance_auto=off white_balance=4500
-$LOGICAM set exposure_mode=auto
-$LOGICAM preset save desk
-$LOGICAM preset apply desk
-$LOGICAM reset
-$LOGICAM auto                    # Smart Auto until Ctrl-C (turns the camera on)
-$LOGICAM auto exposure --bias -0.3 --min-fps 15
-$LOGICAM auto --watch            # print measurements only; change nothing
+logicam version
+logicam list
+logicam describe
+logicam get
+logicam set brightness=140 white_balance_auto=off white_balance=4500
+logicam set exposure_mode=auto
+logicam preset save desk
+logicam preset apply desk
+logicam reset
+logicam auto                    # Smart Auto until Ctrl-C (turns the camera on)
+logicam auto exposure --bias -0.3 --min-fps 15
+logicam auto --watch            # print measurements only; change nothing
 ```
 
 Use `--camera <index|serial>` when several cameras are attached and `--json` for scripting.
@@ -215,6 +248,12 @@ The checks run the exposure and white-balance controllers against simulated came
 (weak gain, exaggerated tone curve, flicker-safe shutter steps) was measured on a real StreamCam.
 
 `docs/logitech-options-plus.md` records how Logi Options+ communicates with the camera.
+
+## Versions
+
+LogiCam Tuner follows [Semantic Versioning](https://semver.org). Each release is tagged `vX.Y.Z`, listed in
+[CHANGELOG.md](CHANGELOG.md) and published on the [releases page](https://github.com/harsh-gulhane/logicam-tuner/releases).
+Check yours with `logicam version` or in the app's About window.
 
 ## Contributing
 
