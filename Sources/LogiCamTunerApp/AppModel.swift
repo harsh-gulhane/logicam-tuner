@@ -190,7 +190,7 @@ final class AppModel: ObservableObject {
         self.feed = feed
         self.smartAuto = smartAuto
         cameraInUse = feed.isStreamingSomewhere
-        nextProbe = Date() + 20
+        nextProbe = Date() + Self.probeInterval
         updateFeed()
     }
 
@@ -200,23 +200,40 @@ final class AppModel: ObservableObject {
         updateOverlay()
         guard let feed, !probing else { return }
         guard feed.isRunning else {
+            // For a second or so after stopping, the camera still counts as running in this process;
+            // reading "running somewhere" then would mistake LogiCam Tuner's own stream for another app.
+            guard !feed.isStreamingInThisProcess else { return }
             setCameraInUse(feed.isStreamingSomewhere)
             return
         }
-        // LogiCam Tuner's own stream makes the camera look busy. When streaming only for Smart Auto,
-        // pause now and then to see whether another app still is.
+        // LogiCam Tuner's own stream makes the camera look busy. When streaming only for Smart Auto
+        // or the overlay, pause now and then to see whether another app still is.
         guard !previewVisible, Date() >= nextProbe else { return }
         probing = true
         feed.stop()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+        finishProbe(feed, deadline: Date() + 5)
+    }
+
+    /// Waits until the camera is released in this process, then checks for other apps. If it is not
+    /// released in time, assume no other app: the camera stays off, and a call that is really still
+    /// running is picked up by the next poll.
+    private func finishProbe(_ feed: CameraFeed, deadline: Date) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self, self.feed === feed else { return }
+            let released = !feed.isStreamingInThisProcess
+            guard released || Date() >= deadline else { return self.finishProbe(feed, deadline: deadline) }
+            let elsewhere = released && feed.isStreamingSomewhere
+            Diagnostics.note("probe: released \(released), another app streaming \(elsewhere)")
             self.probing = false
-            self.nextProbe = Date() + 20
-            Diagnostics.note("probe: camera streaming elsewhere \(feed.isStreamingSomewhere)")
-            self.setCameraInUse(feed.isStreamingSomewhere)
+            self.nextProbe = Date() + Self.probeInterval
+            self.setCameraInUse(elsewhere)
             self.updateFeed()
         }
     }
+
+    /// How often LogiCam Tuner pauses its own stream to check whether the call app is still there;
+    /// also roughly how long the camera stays on after a call ends.
+    static let probeInterval: TimeInterval = 10
 
     private func updateStreamInfo() {
         var info: String?
@@ -232,7 +249,7 @@ final class AppModel: ObservableObject {
         guard inUse != cameraInUse else { return }
         Diagnostics.note("camera in use by another app: \(inUse)")
         cameraInUse = inUse
-        if inUse { nextProbe = Date() + 20 } else { overlayDismissed = false }
+        if inUse { nextProbe = Date() + Self.probeInterval } else { overlayDismissed = false }
         updateFeed()
         updateOverlay()
     }

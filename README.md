@@ -128,7 +128,7 @@ Use `--camera <index|serial>` when several cameras are attached and `--json` for
 - **Logi Options+ / Logi Tune running at the same time.** They can reapply their own saved settings.
   In testing, values LogiCam Tuner set (including Smart Auto's) stayed in place with Options+ running.
 - **Detecting other apps.** LogiCam Tuner asks CoreMediaIO whether the camera is streaming. While Smart Auto
-  is streaming itself, it pauses for about a second every 20 seconds to check whether the other app
+  is streaming itself, it pauses for about a second every 10 seconds to check whether the other app
   is still there. (`AVCaptureDevice.isInUseByAnotherApplication` did not report other apps on macOS 27.)
 - **"Disabled by auto mode".** Many cameras (including the StreamCam) report UVC's "disabled by
   automatic mode" flag permanently, so LogiCam Tuner decides whether a control is locked from the current

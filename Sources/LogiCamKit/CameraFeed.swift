@@ -67,15 +67,20 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
 
     public var isRunning: Bool { session.isRunning }
 
+    /// Whether this process is streaming from the camera (any session, not just this feed's).
+    public var isStreamingInThisProcess: Bool { cmioFlag(kCMIODevicePropertyDeviceIsRunning) }
+
     /// Whether any process, including this one, is streaming from the camera.
     ///
     /// `AVCaptureDevice.isInUseByAnotherApplication` stayed false on macOS 27 while other apps streamed
     /// from a StreamCam, so this asks CoreMediaIO, which reports streaming by any client.
-    public var isStreamingSomewhere: Bool {
+    public var isStreamingSomewhere: Bool { cmioFlag(kCMIODevicePropertyDeviceIsRunningSomewhere) }
+
+    private func cmioFlag(_ selector: Int) -> Bool {
         // Looked up on each call (a few cheap property reads) so replugging and threads need no care.
         guard let object = Self.cmioObject(uniqueID: device.uniqueID) else { return false }
         var address = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere),
+            mSelector: CMIOObjectPropertySelector(selector),
             mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
             mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
         var running: UInt32 = 0
