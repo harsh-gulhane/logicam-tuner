@@ -142,7 +142,6 @@ struct MenuView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("LogiCam Tuner").font(.headline)
                     if let camera = model.selectedCamera { Text(camera.name).font(.caption).foregroundStyle(.secondary) }
-                    CameraUsersLabel(monitor: model.liveMonitor)
                 }
                 Spacer()
                 Button {
@@ -151,6 +150,7 @@ struct MenuView: View {
                 } label: { Label("Open LogiCam Tuner", systemImage: "macwindow") }
                     .help("Open the main window with a large live preview")
             }
+            MenuStreamSection(monitor: model.liveMonitor)
             if model.selectedCamera?.uvc != nil {
                 ScrollView { ControlsPanel() }.frame(maxHeight: 520)
             } else if model.selectedCamera != nil {
@@ -188,16 +188,36 @@ struct NoControlsNote: View {
     }
 }
 
-/// "In use by …" for the menu-bar panel.
-struct CameraUsersLabel: View {
+/// The live stream's stats in the menu-bar panel, for a quick look without the overlay. The
+/// details fold away; the one-line summary stays.
+struct MenuStreamSection: View {
     @ObservedObject var monitor: LiveMonitor
     @EnvironmentObject private var model: AppModel
+    @AppStorage("menuStatsExpanded") private var expanded = true
 
     var body: some View {
-        if model.cameraInUse {
-            let names = monitor.live?.appNames
-            Text(names.map { "In use by \($0)" + (monitor.live?.appsAreGuess == true ? "?" : "") } ?? "In use by another app")
-                .font(.caption).foregroundStyle(.green).lineLimit(2)
+        GroupBox {
+            if let live = monitor.live {
+                DisclosureGroup(isExpanded: $expanded) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        StreamStatsView(live: live).font(.caption)
+                        if model.cameraInUse, !model.isOverlayVisible {
+                            Button("Show overlay") { model.showOverlay() }.buttonStyle(.link).font(.caption)
+                        }
+                    }
+                    .padding(.top, 4)
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle().fill(.green).frame(width: 7, height: 7)
+                        Text(StreamText.appName(live, cameraInUse: model.cameraInUse)).fontWeight(.medium).lineLimit(1)
+                        Spacer()
+                        Text(StreamText.summary(live)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Label("Camera idle", systemImage: "video.slash").font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }

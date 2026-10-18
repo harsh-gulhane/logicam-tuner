@@ -64,9 +64,13 @@ A small floating panel shows, while any app uses the camera:
 - exposure (mode, shutter, ISO), white balance, focus, brightness, zoom, HDR, anti-flicker and low-light boost,
 - Smart Auto's status and how long the camera has been on.
 
-It stays above other windows, appears on every Space and over full-screen apps, never takes focus
-from the call, and can be dragged anywhere. Choose Off / While an app uses the camera / Always in the
-App section or the menu-bar panel. The main window keeps a list of recent camera sessions so you can
+It stays above other windows, appears on every Space and over full-screen apps, and never takes focus
+from the call. Drag it anywhere (it remembers the spot), minimise it to a single line with the app,
+resolution and frame rate using the chevron, or close it until the camera is next used. Choose Off /
+While an app uses the camera / Always in the App section or the menu-bar panel.
+
+The same stats are in the menu-bar panel, so a quick look needs no overlay at all: its **Live stream**
+section shows the one-line summary and folds open to every detail. The main window keeps a list of recent camera sessions so you can
 compare how Meet, WhatsApp and FaceTime configure the camera; `logicam who` prints the same from the
 terminal.
 

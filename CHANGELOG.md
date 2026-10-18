@@ -12,6 +12,11 @@ PATCH for fixes. The version lives in the `VERSION` file.
 - For cameras without controls, the overlay and preview readout show the shutter speed, ISO, colour
   temperature and light level the camera reports with each frame.
 - Session history records which camera each session used; `logicam who` lists every camera.
+- The overlay can be minimised to a single line, and the menu-bar panel shows the live stream's stats
+  in a section that folds open, with a button to bring back a closed overlay.
+
+### Fixed
+- The overlay could not be dragged: its SwiftUI content swallowed the clicks that should move it.
 
 ### Changed
 - When LogiCam Tuner picks the camera mode itself, it prefers 16:9 and falls back to 30 fps for cameras

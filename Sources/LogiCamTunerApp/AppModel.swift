@@ -380,6 +380,14 @@ final class AppModel: ObservableObject {
         updateOverlay()
     }
 
+    var isOverlayVisible: Bool { overlay?.isVisible == true }
+
+    /// Brings the overlay back for the current stream, e.g. after it was closed during a call.
+    func showOverlay() {
+        overlayDismissed = false
+        if overlayMode == .off { overlayMode = .whileInUse } else { updateOverlay() }
+    }
+
     private func updateOverlay() {
         let show = overlayMode == .always || (overlayMode == .whileInUse && cameraInUse && !overlayDismissed)
         if show, overlay == nil { overlay = OverlayController(model: self, monitor: liveMonitor) }
