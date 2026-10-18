@@ -1,0 +1,14 @@
+# Keeps dependencies patched. The app currently uses only Apple frameworks, so the Swift entry
+# becomes active as soon as a Swift package dependency is added; GitHub Actions updates apply now.
+version: 2
+updates:
+  - package-ecosystem: "swift"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

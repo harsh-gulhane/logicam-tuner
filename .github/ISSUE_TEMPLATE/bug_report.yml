@@ -1,0 +1,37 @@
+name: Bug report
+description: Something does not work with your camera
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "e.g. 15.3"
+    validations:
+      required: true
+  - type: input
+    id: camera
+    attributes:
+      label: Camera model
+      placeholder: "e.g. Logitech StreamCam"
+    validations:
+      required: true
+  - type: textarea
+    id: describe
+    attributes:
+      label: Camera details
+      description: Output of `logicam list` and `logicam describe` (see the README's CLI section).
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Relevant lines from `~/Library/Logs/LogiCamTuner.log`, if any.
+      render: text

@@ -1,16 +1,25 @@
 # LogiCam Tuner
 
-**Unofficial Mac app for the Logitech StreamCam** — every camera setting Logi Options+ offers,
-smarter auto exposure and white balance, a sharp live preview and a live stream overlay. Built and
-tested on the StreamCam; other Logitech webcams (Brio, C920, C922…) and most USB (UVC) webcams should
-work too, but are untested so far.
+**An open-source Mac app for the Logitech StreamCam:** every camera setting Logi Options+ offers,
+smarter auto exposure and white balance, a sharp live preview, a live stream-stats overlay, and a fix
+for WhatsApp's 5 fps video.
 
-> LogiCam Tuner is an independent, community project. It is not made, affiliated with or endorsed by
-> Logitech. Logitech, Logi and StreamCam are trademarks of Logitech.
+> Unofficial community project, not made, affiliated with or endorsed by Logitech.
+> See [Trademarks and disclaimer](#trademarks-and-disclaimer).
 
-LogiCam Tuner talks to the camera directly with standard USB Video Class (UVC) control requests, the
-same mechanism Logitech's own agent uses. It does not need Logi Options+, Logi Tune, a kernel
-extension or a driver.
+## Why I built this
+
+I recently bought a Logitech StreamCam. The official Logi Options+ app turned out to be too slow and
+sluggish to do anything with, and I kept running into problems: video calls on WhatsApp looked choppy,
+and the camera's auto mode gave me a dark face and an amber, drifting colour cast.
+
+So I built LogiCam Tuner, a small native Mac app that fixed all of that for me, and made it open source
+so anyone with the same camera can use it and contribute to it.
+
+It talks to the camera directly with standard USB Video Class (UVC) control requests, the same
+mechanism Logitech's own agent uses. It does not need Logi Options+, Logi Tune, a kernel extension or a
+driver. It is built and tested on the StreamCam; other Logitech webcams (Brio, C920, C922…) and most USB
+(UVC) webcams should work too, but are untested so far.
 
 ## Controls
 
@@ -160,11 +169,40 @@ Use `--camera <index|serial>` when several cameras are attached and `--json` for
 
 Reports for other cameras are welcome: include `logicam list` and `logicam describe` output.
 
-## Coming from CamDial
+## How it was built: a short timeline
 
-This project was called CamDial. On first launch, presets, Smart Auto settings, session history and
-preferences are moved over automatically. Because the app has a new identity, macOS asks for camera
-access again, and "Open at login" needs switching on again.
+Each step started with a problem I hit with the StreamCam and ended with a fix in the app.
+
+1. **Options+ was too slow to use.** Looking at how Logi Options+ works showed that, for the image
+   controls, it sends standard UVC control requests to the camera
+   ([notes](docs/logitech-options-plus.md)). So LogiCam Tuner does the same, directly and instantly,
+   from a menu-bar app and a command-line tool.
+2. **Every auto-controlled setting looked locked.** The StreamCam reports UVC's "disabled by auto mode"
+   flag all the time, so the app works out what is locked from the auto controls instead.
+3. **Auto exposure left my face dark, and auto white balance turned whites amber (5230 K) and kept
+   drifting.** Built *Smart Auto*: it exposes for detected faces, takes white balance only from grey
+   surfaces, and changes nothing until an error is clearly visible, so the picture settles and stays put.
+4. **Exposure kept bouncing between two settings.** Offline tests that simulate the camera's measured
+   behaviour caught it: anti-flicker allows only whole 10 ms shutter steps, and the camera's gain is
+   weaker than expected. Small corrections now use gain only.
+5. **A menu-bar panel wasn't enough to see what a change does.** Added a main window with a large live
+   preview beside the controls, then 60 fps support.
+6. **The preview was blurry.** The preview was showing the tiny 256-pixel image Smart Auto uses for
+   analysis, stretched up. It now draws the full 1080p frames, and the same change halved the app's CPU use.
+7. **I wanted to see what each call app actually gets from the camera.** Added a floating overlay with
+   live stats: which app is using the camera, resolution, configured and measured fps, format, shutter,
+   ISO, white balance and more, plus a history so Meet, WhatsApp and FaceTime can be compared. macOS has
+   no public API naming camera users, so the app reports the apps using the microphone at the same time.
+8. **The camera stayed on after a call ended.** macOS takes a moment to release the camera, and the app
+   mistook its own fading stream for another app. It now waits for the release, and turns the camera off
+   within about 10 seconds of a call ending.
+9. **WhatsApp video was choppy.** The overlay showed why: WhatsApp picks the camera's highest
+   resolution, 2304×1296, which the StreamCam can only deliver at 5 fps. LogiCam Tuner now switches the
+   camera to 1080p at 30 fps a moment after WhatsApp starts.
+10. **"Auto" anti-flicker failed with an error.** The StreamCam only accepts 50 Hz and 60 Hz, so the app
+    now offers only what the camera reports it supports.
+11. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
+    portrait stream to other apps needs a virtual camera. Research is in progress.
 
 ## Development
 
@@ -178,6 +216,21 @@ The checks run the exposure and white-balance controllers against simulated came
 
 `docs/logitech-options-plus.md` records how Logi Options+ communicates with the camera.
 
+## Contributing
+
+Issues and pull requests are welcome, especially reports from other cameras. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Trademarks and disclaimer
+
+LogiCam Tuner is an independent, unofficial community project. It is not made, affiliated with,
+sponsored or endorsed by Logitech. Logitech, Logi, StreamCam and Logi Options+ are trademarks of
+Logitech, used here only to say which hardware and software this project works with. No Logitech
+code, logos or assets are included.
+
+The software is provided as is, without warranty of any kind (see the license). It changes camera
+settings only through the standard USB Video Class interface the camera exposes to every app.
+
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Harsh Gulhane
