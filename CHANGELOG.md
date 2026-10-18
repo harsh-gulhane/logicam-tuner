@@ -6,6 +6,11 @@ PATCH for fixes. The version lives in the `VERSION` file.
 
 ## [Unreleased]
 
+### Changed
+- New original app icon and logo: a camera lens inside a tuning dial. The previous icon used an SF
+  Symbol, which Apple's licence does not allow in app icons.
+- README: logo, highlights and install instructions at the top.
+
 ## [1.1.0] - 2026-10-18
 
 ### Added
