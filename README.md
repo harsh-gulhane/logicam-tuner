@@ -1,8 +1,8 @@
 # LogiCam Tuner
 
 **An open-source Mac app for the Logitech StreamCam:** every camera setting Logi Options+ offers,
-smarter auto exposure and white balance, a sharp live preview, a live stream-stats overlay, and a fix
-for WhatsApp's 5 fps video.
+smarter auto exposure and white balance, a sharp live preview, a live stream-stats overlay (also for
+the Mac's built-in camera), and a fix for WhatsApp's 5 fps video.
 
 [![Release](https://img.shields.io/github/v/release/harsh-gulhane/logicam-tuner)](https://github.com/harsh-gulhane/logicam-tuner/releases/latest)
 [![CI](https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml/badge.svg)](https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml)
@@ -51,15 +51,21 @@ hue, roll (the StreamCam's portrait/landscape sensor) and others show up when a 
 
 The main window shows a large live preview beside every control, so each change is visible as you
 make it. A readout on the preview shows the current shutter speed, ISO and white balance. The
-preview runs at 1080p and 30 or 60 fps, shows the measured frame rate, can be mirrored like a
-video-call self-view, and it stops (camera light off) when the
-window is closed, minimised or hidden.
+preview runs at 1080p and 30 or 60 fps (the Mac's built-in camera tops out at 30), shows the measured
+frame rate, can be mirrored like a video-call self-view, and stops (camera light off) when the window
+is closed, minimised or hidden. The camera picker in the toolbar switches between the StreamCam, the
+built-in camera and any other camera.
+
+A menu-bar icon gives quick access to the same controls and to the live stream's stats. Closing the
+window keeps LogiCam Tuner running there, so Smart Auto keeps working; quit from the menu-bar icon.
+
+Also: presets per camera (one can apply automatically whenever the camera connects) and Open at login.
 
 ## Stream overlay
 
 A small floating panel shows, while any app uses the camera:
 
-- which apps are using it (e.g. "Google Chrome", "FaceTime", "WhatsApp"),
+- which apps are using it (e.g. "Google Chrome", "FaceTime", "WhatsApp") and which camera,
 - the resolution, configured frame rate and the frame rate actually delivered, and the pixel format,
 - exposure (mode, shutter, ISO), white balance, focus, brightness, zoom, HDR, anti-flicker and low-light boost,
 - Smart Auto's status and how long the camera has been on.
@@ -70,9 +76,11 @@ resolution and frame rate using the chevron, or close it until the camera is nex
 While an app uses the camera / Always in the App section or the menu-bar panel.
 
 The same stats are in the menu-bar panel, so a quick look needs no overlay at all: its **Live stream**
-section shows the one-line summary and folds open to every detail. The main window keeps a list of recent camera sessions so you can
-compare how Meet, WhatsApp and FaceTime configure the camera; `logicam who` prints the same from the
-terminal.
+section shows the one-line summary and folds open to every detail, with a link to bring back a closed
+overlay.
+
+The main window keeps a list of recent camera sessions so you can compare how Meet, WhatsApp and
+FaceTime configure the camera; `logicam who` shows which cameras are streaming from the terminal.
 
 macOS has no public API that names the apps using a camera. LogiCam Tuner reports the apps that are
 capturing the microphone while the camera runs, as call apps do, and otherwise the frontmost app
@@ -101,11 +109,6 @@ of seconds after such an app starts. The camera's mode is shared by every app us
 receives the smoother video after a pause of about a second. Only a mode with the same picture shape
 is used, and LogiCam Tuner tries at most twice per session, so an app that insists on its own mode is
 not fought over. The overlay and session history show when this happened.
-
-A menu-bar icon gives quick access to the same controls. Closing the window keeps LogiCam Tuner running
-there, so Smart Auto keeps working; quit from the menu-bar icon.
-
-Also: presets per camera (one can apply automatically whenever the camera connects) and Open at login.
 
 ## Smart Auto
 
@@ -260,7 +263,10 @@ Each step started with a problem I hit with the StreamCam and ended with a fix i
 11. **Calls on the MacBook's own camera showed nothing.** The app only knew USB cameras. It now
     watches every camera, follows the one in use, and reads the built-in camera's exposure and colour
     from the metadata its image pipeline attaches to every frame, since that camera has no controls.
-12. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
+12. **The overlay wouldn't move, and was always full size.** Its SwiftUI text swallowed the clicks that
+    should drag the panel, so it now passes them through to a drag area. It can also be minimised to
+    one line, and the menu-bar panel shows the same stats for a quick look.
+13. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
     portrait stream to other apps needs a virtual camera. Research is in progress.
 
 ## Development

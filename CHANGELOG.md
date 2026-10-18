@@ -6,6 +6,8 @@ PATCH for fixes. The version lives in the `VERSION` file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-18
+
 ### Added
 - The preview and stream overlay work with the Mac's built-in camera and Continuity Camera. The overlay
   follows whichever camera an app is using, and returns to the chosen camera afterwards.
@@ -15,12 +17,12 @@ PATCH for fixes. The version lives in the `VERSION` file.
 - The overlay can be minimised to a single line, and the menu-bar panel shows the live stream's stats
   in a section that folds open, with a button to bring back a closed overlay.
 
-### Fixed
-- The overlay could not be dragged: its SwiftUI content swallowed the clicks that should move it.
-
 ### Changed
 - When LogiCam Tuner picks the camera mode itself, it prefers 16:9 and falls back to 30 fps for cameras
   that cannot reach the preview frame rate.
+
+### Fixed
+- The overlay could not be dragged: its SwiftUI content swallowed the clicks that should move it.
 
 ## [1.0.0] - 2026-10-18
 
