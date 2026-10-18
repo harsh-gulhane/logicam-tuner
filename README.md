@@ -121,8 +121,8 @@ quits, the camera's own automatics are switched back on; Smart Auto resumes at t
 brew install --cask harsh-gulhane/tap/logicam-tuner
 ```
 
-This puts **LogiCam Tuner.app** in Applications and the `logicam` command on your PATH. Update with
-`brew upgrade --cask logicam-tuner`.
+This puts **LogiCam Tuner.app** in Applications and the `logicam` command on your PATH (Homebrew may ask
+for your Mac password to copy the app). Update with `brew upgrade --cask logicam-tuner`.
 
 **First launch.** LogiCam Tuner is free and open source, and is not notarized by Apple (that needs a
 paid developer account), so macOS blocks it the first time:
