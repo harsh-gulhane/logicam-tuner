@@ -92,6 +92,8 @@ struct MainView: View {
                         }
                         Text("Video apps choose their own resolution and frame rate. While one is using the camera, the preview shows that stream unchanged. Shutter speeds longer than one frame (1/60 s at 60 fps) lower the frame rate when Low-light boost is on.")
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Toggle("Fix slow video modes", isOn: $model.fixSlowModes)
+                            .help("Some apps, such as WhatsApp, pick the camera's largest mode, which runs at only 5 fps. Switch them to 1080p at 30 fps.")
                         Picker("Stream overlay", selection: $model.overlayMode) {
                             ForEach(OverlayMode.allCases) { Text($0.rawValue).tag($0) }
                         }

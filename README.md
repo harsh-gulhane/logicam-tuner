@@ -58,6 +58,16 @@ capturing the microphone while the camera runs, as call apps do, and otherwise t
 known to use cameras (marked with "?"). An app using the camera with its microphone fully off is
 shown as "Unknown app". Resolution and frame rate are the camera's: apps may scale the picture further.
 
+### Slow video modes (WhatsApp)
+
+Some apps, WhatsApp among them, pick the camera's largest mode. On the StreamCam that is
+2304×1296, which the camera can only deliver at 5 fps, so video looks like a slideshow. With
+**Fix slow video modes** on (the default), LogiCam Tuner switches the camera to 1080p at 30 fps a couple
+of seconds after such an app starts. The camera's mode is shared by every app using it, so the app
+receives the smoother video after a pause of about a second. Only a mode with the same picture shape
+is used, and LogiCam Tuner tries at most twice per session, so an app that insists on its own mode is
+not fought over. The overlay and session history show when this happened.
+
 A menu-bar icon gives quick access to the same controls. Closing the window keeps LogiCam Tuner running
 there, so Smart Auto keeps working; quit from the menu-bar icon.
 

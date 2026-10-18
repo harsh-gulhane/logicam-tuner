@@ -85,6 +85,13 @@ final class AppModel: ObservableObject {
             updateFeed()
         }
     }
+    /// Switch apps that pick a very slow camera mode (WhatsApp picks the StreamCam's 5 fps one) to 1080p30.
+    @Published var fixSlowModes = UserDefaults.standard.object(forKey: "fixSlowModes") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(fixSlowModes, forKey: "fixSlowModes") }
+    }
+    /// Switches attempted during the current camera session; capped so an app that insists on its
+    /// own mode is not fought over.
+    private var formatUpgrades = 0
     let liveMonitor = LiveMonitor()
     private var overlay: OverlayController?
     /// The overlay was closed for the current camera session.
@@ -95,7 +102,7 @@ final class AppModel: ObservableObject {
     private var smartAuto: SmartAuto?
     private var monitor: CameraMonitor?
     private var usageTimer: Timer?
-    private var cameraAccess: Bool?
+    private var accessRequested = false
     /// While Smart Auto streams, when to next pause and check for other apps.
     private var nextProbe = Date.distantPast
     private var probing = false
@@ -197,6 +204,7 @@ final class AppModel: ObservableObject {
     private func pollUsage() {
         updateStreamInfo()
         liveMonitor.update(feed: feed, camera: camera, active: cameraInUse || previewVisible, otherApp: cameraInUse, io: io)
+        fixSlowModeIfNeeded()
         updateOverlay()
         guard let feed, !probing else { return }
         guard feed.isRunning else {
@@ -249,7 +257,7 @@ final class AppModel: ObservableObject {
         guard inUse != cameraInUse else { return }
         Diagnostics.note("camera in use by another app: \(inUse)")
         cameraInUse = inUse
-        if inUse { nextProbe = Date() + Self.probeInterval } else { overlayDismissed = false }
+        if inUse { nextProbe = Date() + Self.probeInterval } else { overlayDismissed = false; formatUpgrades = 0 }
         updateFeed()
         updateOverlay()
     }
@@ -264,9 +272,37 @@ final class AppModel: ObservableObject {
             feed.stop()
             return
         }
-        withCameraAccess { granted in
-            Diagnostics.note("starting capture: preview \(self.previewVisible), smart \(self.smart.isEnabled), access \(granted)")
-            if granted { feed.start() } else { self.errorMessage = "Allow camera access in System Settings → Privacy & Security → Camera." }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            if !feed.isRunning { Diagnostics.note("starting capture: preview \(previewVisible), in use \(cameraInUse)") }
+            feed.start()
+        case .notDetermined:
+            // The answer can take a while (macOS may show a prompt); decide again once it arrives,
+            // since the reason to stream may have gone by then.
+            guard !accessRequested else { return }
+            accessRequested = true
+            AVCaptureDevice.requestAccess(for: .video) { _ in
+                DispatchQueue.main.async { self.accessRequested = false; self.updateFeed() }
+            }
+        default:
+            errorMessage = "Allow camera access in System Settings → Privacy & Security → Camera."
+        }
+    }
+
+    /// Below this, video looks like a slideshow; StreamCam's full-sensor mode runs at 5 fps.
+    static let slowModeFrameRate = 15.0
+
+    private func fixSlowModeIfNeeded() {
+        guard fixSlowModes, cameraInUse, formatUpgrades < 2, let feed,
+              feed.configuredFrameRate < Self.slowModeFrameRate else { return }
+        formatUpgrades += 1
+        let d = feed.dimensions
+        let before = String(format: "%d×%d · %.0f fps", d.width, d.height, feed.configuredFrameRate)
+        if let next = feed.upgradeSharedFormat(frameRate: 30) {
+            Diagnostics.note("switched slow mode \(before) to \(next.width)×\(next.height) at 30 fps")
+            liveMonitor.noteUpgrade(from: before)
+        } else {
+            Diagnostics.note("slow mode \(before): no better mode available")
         }
     }
 
@@ -281,16 +317,6 @@ final class AppModel: ObservableObject {
         let show = overlayMode == .always || (overlayMode == .whileInUse && cameraInUse && !overlayDismissed)
         if show, overlay == nil { overlay = OverlayController(model: self, monitor: liveMonitor) }
         overlay?.setVisible(show)
-    }
-
-    private func withCameraAccess(_ body: @escaping @MainActor (Bool) -> Void) {
-        if let cameraAccess { body(cameraAccess); return }
-        AVCaptureDevice.requestAccess(for: .video) { granted in
-            DispatchQueue.main.async {
-                self.cameraAccess = granted
-                body(granted)
-            }
-        }
     }
 
     private func apply(_ status: SmartAutoStatus) {

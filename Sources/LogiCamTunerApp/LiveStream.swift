@@ -24,6 +24,8 @@ struct LiveStream: Equatable {
                                  "exposure_priority", "brightness"]
 
     var resolution: String { width > 0 ? "\(width)×\(height)" : "—" }
+    /// Set when LogiCam Tuner replaced a slow mode the app chose, e.g. "2304×1296 · 5 fps".
+    var upgradedFrom: String?
 
     var appNames: String? { apps.isEmpty ? nil : apps.map(\.name).joined(separator: ", ") }
     var appsAreGuess: Bool { apps.contains { $0.evidence == .frontmost } }
@@ -40,6 +42,8 @@ struct CameraSession: Codable, Identifiable, Equatable {
     var configuredFrameRate: Double
     var averageMeasuredFrameRate: Double?
     var pixelFormat: String
+    /// The slow mode the app chose before LogiCam Tuner switched it, if it did.
+    var upgradedFrom: String?
 }
 
 /// The last sessions, as JSON next to the presets.
@@ -132,6 +136,10 @@ final class LiveMonitor: ObservableObject {
         }
     }
 
+    func noteUpgrade(from mode: String) {
+        live?.upgradedFrom = mode
+    }
+
     func clearSessions() {
         sessions = []
         try? store.save([])
@@ -148,7 +156,7 @@ final class LiveMonitor: ObservableObject {
                                     startedAt: live.startedAt, duration: duration, resolution: live.resolution,
                                     configuredFrameRate: live.configuredFrameRate,
                                     averageMeasuredFrameRate: samples.isEmpty ? nil : samples.reduce(0, +) / Double(samples.count),
-                                    pixelFormat: live.pixelFormat)
+                                    pixelFormat: live.pixelFormat, upgradedFrom: live.upgradedFrom)
         Diagnostics.note("session ended: \(session.app), \(session.resolution) at \(session.configuredFrameRate) fps, "
                          + "measured \(session.averageMeasuredFrameRate.map { String(format: "%.1f", $0) } ?? "none"), \(Int(duration)) s")
         sessions.insert(session, at: 0)

@@ -39,6 +39,7 @@ struct SessionsView: View {
         var parts = ["\(s.resolution) · \(Int(s.configuredFrameRate.rounded())) fps"]
         if let measured = s.averageMeasuredFrameRate { parts.append(String(format: "%.1f measured", measured)) }
         parts.append(s.pixelFormat)
+        if let previous = s.upgradedFrom { parts.append("fixed from \(previous)") }
         let minutes = Int(s.duration / 60)
         parts.append(minutes > 0 ? "\(minutes) min" : "\(Int(s.duration)) s")
         return parts.joined(separator: " · ")

@@ -144,16 +144,41 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     /// The largest format up to 1080p that reaches `frameRate`, with the matching frame duration.
     /// Cameras such as the StreamCam list each rate as its own fixed range, often on separate formats.
     static func videoFormat(_ device: AVCaptureDevice, frameRate: Double) -> (AVCaptureDevice.Format, CMTime)? {
-        let candidates = device.formats.compactMap { format -> (AVCaptureDevice.Format, CMTime, Int32)? in
+        let candidates = device.formats.compactMap { format -> (AVCaptureDevice.Format, CMTime, Int32, Double)? in
             let d = format.formatDescription.dimensions
             guard d.width <= 1920, let range = format.videoSupportedFrameRateRanges.first(where: {
                 $0.minFrameRate <= frameRate + 0.5 && $0.maxFrameRate >= frameRate - 0.5
             }) else { return nil }
             let duration = range.minFrameRate == range.maxFrameRate ? range.minFrameDuration
                 : CMTime(value: 1000, timescale: CMTimeScale(frameRate * 1000))
-            return (format, duration, d.width * d.height)
+            let fastest = format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0
+            return (format, duration, d.width * d.height, fastest)
         }
-        return candidates.max { $0.2 < $1.2 }.map { ($0.0, $0.1) }
+        // Largest picture; among equals, the format that can run fastest (on the StreamCam the
+        // compressed 420v modes, which need less USB bandwidth than uncompressed yuvs).
+        return candidates.max { ($0.2, $0.3) < ($1.2, $1.3) }.map { ($0.0, $0.1) }
+    }
+
+    /// Switches the camera to a smoother mode while another app is streaming, e.g. when an app picked
+    /// the StreamCam's 2304×1296 mode, which only runs at 5 fps. The format is device-wide, so the
+    /// other app receives the new frames (after a pause of about a second). Only modes with the same
+    /// aspect ratio are considered, so the picture is not reshaped. Returns the new mode, or nil when
+    /// nothing better exists or the device could not be configured.
+    @discardableResult
+    public func upgradeSharedFormat(frameRate: Double) -> CMVideoDimensions? {
+        let current = dimensions
+        guard current.width > 0, configuredFrameRate < frameRate - 0.5,
+              let (format, duration) = Self.videoFormat(device, frameRate: frameRate) else { return nil }
+        let next = format.formatDescription.dimensions
+        // Same shape: width × height ratio within 1%.
+        guard abs(Double(next.width) * Double(current.height) - Double(next.height) * Double(current.width))
+                < 0.01 * Double(current.width) * Double(current.height),
+              (try? device.lockForConfiguration()) != nil else { return nil }
+        defer { device.unlockForConfiguration() }
+        device.activeFormat = format
+        device.activeVideoMinFrameDuration = duration
+        device.activeVideoMaxFrameDuration = duration
+        return next
     }
 
     /// Resolution of the stream the camera is delivering. The format is device-wide, so this is also

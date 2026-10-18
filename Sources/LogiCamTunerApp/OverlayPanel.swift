@@ -87,6 +87,12 @@ struct OverlayView: View {
             row("Video", "\(live.resolution) · \(fps(live.configuredFrameRate)) fps")
             row("Measured", measured(live))
             row("Format", live.pixelFormat)
+            if let previous = live.upgradedFrom {
+                GridRow {
+                    Text("Fixed").foregroundStyle(.secondary)
+                    Text("was \(previous)").foregroundStyle(.green).lineLimit(1)
+                }
+            }
             Divider().gridCellColumns(2)
             row("Exposure", [exposureMode(v), v["exposure_time"].map { ControlCatalog.format("exposure_time", $0) },
                              v["gain"].map { "ISO \($0)" }].compactMap { $0 }.joined(separator: " · "))
