@@ -1,6 +1,6 @@
 # CamDial
 
-A macOS menu-bar app and CLI for adjusting USB webcams — built for Logitech webcams such as the
+A macOS app and CLI for adjusting USB webcams — built for Logitech webcams such as the
 StreamCam, and usable with any UVC camera. It covers everything Logi Options+ offers for the
 camera image, and adds **Smart Auto**: exposure and white balance that work better than the
 camera's own automatics.
@@ -29,8 +29,17 @@ extension or a driver.
 Controls are discovered from the camera's own descriptor, so only supported controls appear. Gamma,
 hue, roll (the StreamCam's portrait/landscape sensor) and others show up when a camera has them.
 
-Plus: presets per camera (one can apply automatically whenever the camera connects), a live
-preview (off by default), and Open at login.
+## The app
+
+The main window shows a large live preview beside every control, so each change is visible as you
+make it. A readout on the preview shows the current shutter speed, ISO and white balance. The
+preview can be mirrored like a video-call self-view, and it stops (camera light off) when the
+window is closed, minimised or hidden.
+
+A menu-bar icon gives quick access to the same controls. Closing the window keeps CamDial running
+there, so Smart Auto keeps working; quit from the menu-bar icon.
+
+Also: presets per camera (one can apply automatically whenever the camera connects) and Open at login.
 
 ## Smart Auto
 

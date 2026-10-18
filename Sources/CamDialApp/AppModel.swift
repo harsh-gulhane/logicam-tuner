@@ -30,7 +30,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var smartStatus: SmartAutoStatus?
     /// Another app is streaming from the selected camera.
     @Published private(set) var cameraInUse = false
-    @Published var previewVisible = false { didSet { updateFeed() } }
+    /// Views currently showing the live preview (the main window, the menu-bar panel).
+    @Published private(set) var previewOwners: Set<String> = []
+    var previewVisible: Bool { !previewOwners.isEmpty }
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     private var camera: Camera?
@@ -64,6 +66,12 @@ final class AppModel: ObservableObject {
     }
 
     var selectedCamera: CameraInfo? { cameras.first { $0.id == selectedCameraID } }
+
+    func setPreview(_ visible: Bool, owner: String) {
+        guard visible != previewOwners.contains(owner) else { return }
+        if visible { previewOwners.insert(owner) } else { previewOwners.remove(owner) }
+        updateFeed()
+    }
     var previewSession: AVCaptureSession? { feed?.session }
 
     func refreshCameras() {
