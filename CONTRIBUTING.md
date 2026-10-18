@@ -23,6 +23,13 @@ CI runs the same three steps on every pull request.
 - `Tests/LogiCamKitChecks` — offline checks, including a real StreamCam descriptor fixture and
   simulated cameras for the auto-exposure and white-balance controllers.
 
+## Pull requests
+
+`main` is protected: every change, including the maintainer's, lands through a pull request once CI's
+`build` check passes. Branch from `main`, push the branch and open a pull request against `main`.
+Pull requests are squash-merged, so the pull request title becomes the commit message: keep it short,
+in Conventional Commit style (`feat: …`, `fix: …`, `docs: …`). Merged branches are deleted.
+
 ## Guidelines
 
 - Keep changes focused, and add a check to `Tests/LogiCamKitChecks` for new behaviour where possible.
@@ -39,7 +46,7 @@ Open an issue with `logicam list` and `logicam describe` output and what worked.
 ## Releasing (maintainers)
 
 1. Update `VERSION` (semantic versioning) and move the `## [Unreleased]` notes in `CHANGELOG.md` under a new
-   `## [x.y.z] - YYYY-MM-DD` heading. Commit and push to `main`.
-2. Run `scripts/release.sh x.y.z`. It tags `vx.y.z`; the Release workflow runs the checks, builds the universal
+   `## [x.y.z] - YYYY-MM-DD` heading. Open a pull request (`release: x.y.z`) and merge it once CI passes.
+2. Update your local `main` (`git checkout main && git pull`), then run `scripts/release.sh x.y.z`. It tags `vx.y.z`; the Release workflow runs the checks, builds the universal
    app and publishes the zip and its checksum on GitHub; the script then updates the cask in
    [harsh-gulhane/homebrew-tap](https://github.com/harsh-gulhane/homebrew-tap).

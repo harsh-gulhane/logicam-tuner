@@ -2,8 +2,9 @@
 # Publishes a release: tags v<version>, waits for the Release workflow to build and upload the app,
 # then points the Homebrew cask in harsh-gulhane/homebrew-tap at it. Uses your `gh` login.
 #
-#   1. Set VERSION and add a "## [<version>]" section to CHANGELOG.md, commit and push to main.
-#   2. scripts/release.sh <version>
+#   1. Set VERSION and add a "## [<version>]" section to CHANGELOG.md, and merge that to main
+#      through a pull request (main is protected).
+#   2. On an up-to-date main: scripts/release.sh <version>
 set -eu
 
 version=${1:?usage: scripts/release.sh <version>}
@@ -18,7 +19,7 @@ grep -q "^## \[$version\]" CHANGELOG.md || fail "CHANGELOG.md has no ## [$versio
 [ "$(git rev-parse --abbrev-ref HEAD)" = main ] || fail "not on main"
 git diff --quiet && git diff --cached --quiet || fail "commit your changes first"
 git fetch -q origin
-[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || fail "push main first"
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || fail "local main differs from origin/main: merge the release pull request, then git pull"
 git rev-parse -q --verify "refs/tags/v$version" >/dev/null && fail "tag v$version already exists"
 
 git tag -a "v$version" -m "LogiCam Tuner $version"
