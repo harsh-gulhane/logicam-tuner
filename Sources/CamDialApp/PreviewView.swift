@@ -1,43 +1,53 @@
 import AVFoundation
+import CamDialKit
 import SwiftUI
 
-/// Live preview of the selected camera's shared capture session. The app model starts and stops
-/// the session; one session can feed several previews (window and menu-bar panel).
+/// Live preview of the selected camera at the stream's full resolution. The app model starts and
+/// stops the feed; one feed can drive several previews (window and menu-bar panel).
 struct PreviewView: NSViewRepresentable {
-    let session: AVCaptureSession
+    let feed: CameraFeed
     /// Show a mirror image, as video-call apps do for self-view.
     var mirrored = false
 
-    func makeNSView(context: Context) -> PreviewNSView { PreviewNSView(session: session) }
+    func makeNSView(context: Context) -> PreviewNSView { PreviewNSView() }
 
     func updateNSView(_ view: PreviewNSView, context: Context) {
-        if view.preview.session !== session { view.preview.session = session }
+        view.attach(to: feed)
         view.mirrored = mirrored
     }
+
+    static func dismantleNSView(_ view: PreviewNSView, coordinator: ()) { view.attach(to: nil) }
 }
 
 final class PreviewNSView: NSView {
-    let preview: AVCaptureVideoPreviewLayer
+    private let display = AVSampleBufferDisplayLayer()
+    private weak var feed: CameraFeed?
     var mirrored = false { didSet { if mirrored != oldValue { needsLayout = true } } }
 
-    init(session: AVCaptureSession) {
-        preview = AVCaptureVideoPreviewLayer(session: session)
+    init() {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
-        preview.videoGravity = .resizeAspect
-        layer?.addSublayer(preview)
+        display.videoGravity = .resizeAspect
+        layer?.addSublayer(display)
     }
 
     required init?(coder: NSCoder) { nil }
 
-    /// Layers added by hand do not inherit the display's scale; without this the preview renders
-    /// at half resolution on Retina screens and looks soft.
+    func attach(to feed: CameraFeed?) {
+        guard feed !== self.feed else { return }
+        self.feed?.removeDisplayLayer(display)
+        display.flushAndRemoveImage()
+        self.feed = feed
+        feed?.addDisplayLayer(display)
+    }
+
+    /// Layers added by hand do not inherit the display's scale; match it so nothing is resampled twice.
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         layer?.contentsScale = scale
-        preview.contentsScale = scale
+        display.contentsScale = scale
     }
 
     override func layout() {
@@ -45,9 +55,9 @@ final class PreviewNSView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Mirror around the view's centre rather than the layer's origin.
-        preview.transform = CATransform3DIdentity
-        preview.frame = bounds
-        if mirrored { preview.transform = CATransform3DMakeScale(-1, 1, 1) }
+        display.transform = CATransform3DIdentity
+        display.frame = bounds
+        if mirrored { display.transform = CATransform3DMakeScale(-1, 1, 1) }
         CATransaction.commit()
     }
 }

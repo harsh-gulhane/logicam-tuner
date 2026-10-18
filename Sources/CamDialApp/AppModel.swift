@@ -82,7 +82,8 @@ final class AppModel: ObservableObject {
         if visible { previewOwners.insert(owner) } else { previewOwners.remove(owner) }
         updateFeed()
     }
-    var previewSession: AVCaptureSession? { feed?.session }
+    /// The selected camera's feed, for previews.
+    var previewFeed: CameraFeed? { feed }
 
     func refreshCameras() {
         let found = Camera.list()

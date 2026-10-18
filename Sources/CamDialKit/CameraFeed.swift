@@ -18,7 +18,11 @@ extension CameraInfo {
 /// One capture session for a camera, shared by the live preview and Smart Auto.
 ///
 /// When another app is already streaming, the session uses the device's active format so it never
-/// changes what that app receives. Frames are scaled down for analysis only.
+/// changes what that app receives.
+///
+/// Previews are drawn from a separate full-resolution output into `AVSampleBufferDisplayLayer`s.
+/// `AVCaptureVideoPreviewLayer` is not used: in a session that also has the small analysis output it
+/// showed a visibly low-resolution picture of a 1080p stream.
 public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     public let session = AVCaptureSession()
     public let device: AVCaptureDevice
@@ -36,6 +40,9 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     private var frameTimes: [Double] = []
     private let queue = DispatchQueue(label: "camdial.feed")
     private let output = AVCaptureVideoDataOutput()
+    private let displayOutput = AVCaptureVideoDataOutput()
+    private let displayQueue = DispatchQueue(label: "camdial.display")
+    private var displayLayers: [AVSampleBufferDisplayLayer] = []
 
     public init?(_ camera: CameraInfo, analysisWidth: Int = 256) {
         guard let device = camera.captureDevice(), let input = try? AVCaptureDeviceInput(device: device) else { return nil }
@@ -51,6 +58,12 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         ]
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: queue)
+        // The camera's native bi-planar format, unscaled: no conversion before display.
+        displayOutput.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        ]
+        displayOutput.alwaysDiscardsLateVideoFrames = true
+        displayOutput.setSampleBufferDelegate(self, queue: displayQueue)
     }
 
     private let input: AVCaptureDeviceInput
@@ -119,7 +132,9 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
             }
             session.beginConfiguration()
             if session.inputs.isEmpty, session.canAddInput(input) { session.addInput(input) }
-            if session.outputs.isEmpty, session.canAddOutput(output) { session.addOutput(output) }
+            for out in [output, displayOutput] where !session.outputs.contains(out) && session.canAddOutput(out) {
+                session.addOutput(out)
+            }
             session.commitConfiguration()
             session.startRunning()
         }
@@ -157,8 +172,33 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         }
     }
 
+    /// Shows full-resolution frames in `layer` until it is removed.
+    public func addDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
+        lock.withLock { if !displayLayers.contains(layer) { displayLayers.append(layer) } }
+    }
+
+    public func removeDisplayLayer(_ layer: AVSampleBufferDisplayLayer) {
+        lock.withLock { displayLayers.removeAll { $0 === layer } }
+    }
+
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                               from connection: AVCaptureConnection) {
+        if output === displayOutput {
+            let layers = lock.withLock { displayLayers }
+            guard !layers.isEmpty else { return }
+            // Live video: show each frame as soon as it arrives rather than by its timestamp.
+            if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
+               CFArrayGetCount(attachments) > 0 {
+                let dict = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
+                CFDictionarySetValue(dict, Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                                     Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
+            }
+            for layer in layers {
+                if layer.status == .failed { layer.flush() }
+                layer.enqueue(sampleBuffer)
+            }
+            return
+        }
         let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
         lock.withLock {
             frameTimes.append(time)

@@ -40,8 +40,8 @@ struct MainView: View {
             if model.selectedCamera == nil {
                 Text("No USB video camera found.").foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let session = model.previewSession {
-                PreviewView(session: session, mirrored: mirrored)
+            } else if let feed = model.previewFeed {
+                PreviewView(feed: feed, mirrored: mirrored)
             }
             VStack(alignment: .leading, spacing: 6) {
                 if let error = model.errorMessage {
