@@ -49,7 +49,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var controls: [CameraControl] = []
     @Published private(set) var presetNames: [String] = []
     @Published private(set) var startupPreset: String?
-    @Published var errorMessage: String?
+    /// Shown in the window for a few seconds.
+    @Published var errorMessage: String? {
+        didSet {
+            guard let message = errorMessage else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                if self?.errorMessage == message { self?.errorMessage = nil }
+            }
+        }
+    }
     @Published private(set) var smart = SmartAutoSettings()
     @Published private(set) var smartStatus: SmartAutoStatus?
     /// Another app is streaming from the selected camera.

@@ -269,6 +269,15 @@ let ycbcrAmber = FrameAnalyzer.analyze(ycbcrFrame(180, 128, 90))
 check(ycbcrAmber.map { abs($0.averageCast.warmth - amber.averageCast.warmth) < 0.05 } == true,
       "native YCbCr frames measure like BGRA (amber)")
 
+// MARK: Choice bounds
+
+let plfControl = CameraControl(definition: ControlCatalog.definition("power_line_frequency")!, unitID: 3)
+let plf = ControlState(control: plfControl, current: 2, minimum: 1, maximum: 2, resolution: nil, defaultValue: 2,
+                       info: [.get, .set], lockedByAutomaticMode: false)
+check(plf.choices.map(\.label) == ["50 Hz", "60 Hz"], "anti-flicker offers only what the camera's range allows")
+check(CameraError.io(operation: "set Anti-flicker", code: Int32(bitPattern: 0xE000_404F)).description
+      == "Couldn't set Anti-flicker: the camera rejected the request (0xe000404f)", "readable stall error")
+
 // MARK: Camera users
 
 check(CameraUsers.outermostApp("/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper (Alerts).app/Contents/MacOS/x")

@@ -17,6 +17,10 @@ public enum ControlKind: Equatable, Sendable {
         public let value: Int
         public let label: String
     }
+
+    var isChoiceWithoutBitmap: Bool {
+        if case .choice(_, supportedFromResolution: false) = self { true } else { false }
+    }
 }
 
 /// A standard UVC 1.5 control. Field offset/size select one value inside a compound control (pan/tilt).

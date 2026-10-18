@@ -75,7 +75,7 @@ func render(_ state: ControlState) -> String {
     if formatted != "\(state.current)" { value += " (\(formatted))" }
     if case .toggle = d.kind { value = state.current != 0 ? "on" : "off" }
     var detail: [String] = []
-    if let lo = state.minimum, let hi = state.maximum { detail.append("range \(lo)...\(hi)") }
+    if let lo = state.minimum, let hi = state.maximum, d.kind == .range { detail.append("range \(lo)...\(hi)") }
     if let step = state.resolution, d.kind == .range, step > 1 { detail.append("step \(step)") }
     if let def = state.defaultValue { detail.append("default \(def)") }
     if !state.choices.isEmpty, d.kind != .toggle { detail.append("choices " + state.choices.map { "\($0.value)=\($0.label)" }.joined(separator: ", ")) }

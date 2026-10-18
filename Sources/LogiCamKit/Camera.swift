@@ -11,7 +11,7 @@ public enum CameraError: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case let .io(operation, code):
-            "\(operation) failed: \(String(format: "0x%08x", UInt32(bitPattern: code))) \(ioReturnName(code))"
+            "Couldn't \(operation): \(ioReturnName(code)) (\(String(format: "0x%08x", UInt32(bitPattern: code))))"
         case let .descriptor(error): error.description
         case let .unsupported(id): "control \(id) is not supported by this camera"
         case let .outOfRange(id, value, min, max): "\(id)=\(value) is outside \(min)...\(max)"
@@ -22,13 +22,14 @@ public enum CameraError: Error, Equatable, CustomStringConvertible {
 
 private func ioReturnName(_ code: Int32) -> String {
     switch UInt32(bitPattern: code) {
-    case 0xE000_4051: "(pipe stalled: the camera rejected the request)"
-    case 0xE000_02C0: "(no device)"
-    case 0xE000_02C5: "(exclusive access)"
-    case 0xE000_02CD: "(not open)"
-    case 0xE000_02C7: "(unsupported)"
-    case 0xE000_02D6: "(timeout)"
-    default: ""
+    case 0xE000_404F: "the camera rejected the request" // kIOUSBPipeStalled
+    case 0xE000_4051: "the camera did not answer in time" // kIOUSBTransactionTimeout
+    case 0xE000_02C0: "the camera is not connected"
+    case 0xE000_02C5: "another app has exclusive access"
+    case 0xE000_02CD: "the camera is not open"
+    case 0xE000_02C7: "not supported"
+    case 0xE000_02D6: "timed out"
+    default: "I/O error"
     }
 }
 
@@ -95,11 +96,12 @@ public struct ControlState: Equatable, Sendable {
         min(max(value, minimum ?? value), maximum ?? value)
     }
 
-    /// Choices the camera accepts, for choice controls.
+    /// Choices the camera accepts, for choice controls: from GET_RES's bitmap where the control has
+    /// one, otherwise within the reported minimum and maximum.
     public var choices: [ControlKind.Choice] {
         guard case let .choice(all, fromResolution) = control.definition.kind else { return [] }
-        guard fromResolution, let mask = resolution else { return all }
-        return all.filter { mask & $0.value != 0 }
+        if fromResolution { return resolution.map { mask in all.filter { mask & $0.value != 0 } } ?? all }
+        return all.filter { ($0.value >= (minimum ?? Int.min)) && ($0.value <= (maximum ?? Int.max)) }
     }
 }
 
@@ -172,14 +174,15 @@ public final class Camera: @unchecked Sendable {
             (try? self.transfer(control, request, length: d.length)).map { WireCodec.decode($0, d) }
         }
         let isRange = d.kind == .range
+        let hasBounds = isRange || d.kind.isChoiceWithoutBitmap
         let resolution: Int? = switch d.kind {
         case .choice(_, supportedFromResolution: true): (try? transfer(control, .getResolution, length: d.length)).map { Int($0[0]) }
         case .range: optional(.getResolution)
         default: nil
         }
         return ControlState(control: control, current: current,
-                            minimum: isRange ? optional(.getMinimum) : nil,
-                            maximum: isRange ? optional(.getMaximum) : nil,
+                            minimum: hasBounds ? optional(.getMinimum) : nil,
+                            maximum: hasBounds ? limitedMaximum(d, optional(.getMaximum)) : nil,
                             resolution: resolution, defaultValue: optional(.getDefault),
                             info: ControlInfo(rawValue: infoBytes.first ?? 0),
                             lockedByAutomaticMode: try isLocked(d))
@@ -194,6 +197,13 @@ public final class Camera: @unchecked Sendable {
                   let bytes = try? transfer(control, .getCurrent, length: control.definition.length) else { return }
             values[id] = WireCodec.decode(bytes, control.definition)
         }
+    }
+
+    /// "Auto" anti-flicker (3) exists only from UVC 1.5; older cameras such as the StreamCam
+    /// (UVC 1.0) stall when asked for it, whatever their GET_MAX says.
+    private func limitedMaximum(_ d: ControlDefinition, _ reported: Int?) -> Int? {
+        guard d.id == "power_line_frequency", topology.uvcVersion < 0x0150 else { return reported }
+        return min(reported ?? 2, 2)
     }
 
     private func isLocked(_ d: ControlDefinition) throws -> Bool {
@@ -250,7 +260,7 @@ public final class Camera: @unchecked Sendable {
                          &transferred, &path)
         }
         guard status == 0 else {
-            throw CameraError.io(operation: "\(request) \(control.definition.id)", code: status)
+            throw CameraError.io(operation: "\(isSet ? "set" : "read") \(control.definition.name)", code: status)
         }
         return isSet ? bytes : Array(bytes.prefix(Int(transferred)))
     }
