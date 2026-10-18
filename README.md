@@ -1,15 +1,85 @@
-# LogiCam Tuner
+<p align="center">
+  <img src="docs/images/logo.png" width="128" height="128" alt="LogiCam Tuner logo">
+</p>
 
-**An open-source Mac app for the Logitech StreamCam:** every camera setting Logi Options+ offers,
-smarter auto exposure and white balance, a sharp live preview, a live stream-stats overlay (also for
-the Mac's built-in camera), and a fix for WhatsApp's 5 fps video.
+<h1 align="center">LogiCam Tuner</h1>
 
-[![Release](https://img.shields.io/github/v/release/harsh-gulhane/logicam-tuner)](https://github.com/harsh-gulhane/logicam-tuner/releases/latest)
-[![CI](https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml/badge.svg)](https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <strong>An open-source Mac app for the Logitech StreamCam.</strong><br>
+  Every setting Logi Options+ offers, smarter auto exposure and white balance, a sharp live preview,
+  live stream stats for every call, and a fix for WhatsApp's 5 fps video.
+</p>
+
+<p align="center">
+  <a href="https://github.com/harsh-gulhane/logicam-tuner/releases/latest"><img src="https://img.shields.io/github/v/release/harsh-gulhane/logicam-tuner" alt="Release"></a>
+  <a href="https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml"><img src="https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-lightgrey" alt="macOS 14 or later">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+</p>
+
+```sh
+brew install --cask harsh-gulhane/tap/logicam-tuner
+```
 
 > Unofficial community project, not made, affiliated with or endorsed by Logitech.
 > See [Trademarks and disclaimer](#trademarks-and-disclaimer).
+
+## Highlights
+
+- **Every StreamCam setting, instantly.** Shutter speed, ISO, HDR, white balance, focus, zoom,
+  anti-flicker and more, applied the moment you move a slider. No Logi Options+ needed.
+- **Smart Auto.** Exposure that meters your face and white balance taken from grey surfaces, which
+  settle and stay put instead of drifting.
+- **Sharp live preview.** Full 1080p at up to 60 fps, right next to the controls.
+- **Stream stats for every call.** A floating overlay shows which app is using the camera, the
+  resolution, the real frame rate, shutter, ISO and white balance. Drag it anywhere, shrink it to one
+  line, or check the same stats from the menu bar.
+- **Smooth WhatsApp video.** WhatsApp picks a mode the StreamCam can only run at 5 fps; LogiCam Tuner
+  switches it to 1080p at 30 fps automatically.
+- **The MacBook camera too.** The overlay and preview follow whichever camera a call uses, including
+  the built-in camera and Continuity Camera.
+- **Camera on only when needed.** LogiCam Tuner never turns the camera light on by itself, and it comes
+  with a `logicam` command-line tool.
+
+## Install
+
+### Homebrew (recommended)
+
+```sh
+brew install --cask harsh-gulhane/tap/logicam-tuner
+```
+
+This puts **LogiCam Tuner.app** in Applications and the `logicam` command on your PATH (Homebrew may ask
+for your Mac password to copy the app). Update with `brew upgrade --cask logicam-tuner`.
+
+**First launch.** LogiCam Tuner is free and open source, and is not notarized by Apple (that needs a
+paid developer account), so macOS blocks it the first time:
+
+1. Open LogiCam Tuner. macOS says it "could not verify" the app; click **Done**.
+2. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to
+   LogiCam Tuner. Confirm with your password.
+3. Open the app again. macOS asks for camera access the first time the preview or Smart Auto needs video.
+
+Alternatively, run `xattr -dr com.apple.quarantine "/Applications/LogiCam Tuner.app"` once, which also
+clears the block for the `logicam` command. macOS may ask again after an update.
+
+### Download
+
+Download `LogiCam-Tuner-<version>.zip` from the [latest release](https://github.com/harsh-gulhane/logicam-tuner/releases/latest),
+unzip it, move **LogiCam Tuner.app** to Applications and follow the first-launch steps above. The
+`logicam` command is inside the app at `LogiCam Tuner.app/Contents/MacOS/logicam`.
+
+### Build from source
+
+Requires macOS 14 or later and Swift 5.10+ (Xcode or the Command Line Tools). Apps you build yourself
+are not blocked by macOS.
+
+```sh
+git clone https://github.com/harsh-gulhane/logicam-tuner.git
+cd logicam-tuner
+./scripts/build-app.sh          # builds "build/LogiCam Tuner.app" (universal, ad-hoc signed)
+open "build/LogiCam Tuner.app"
+```
 
 ## Why I built this
 
@@ -28,24 +98,6 @@ driver. It is built and tested on the StreamCam; other Logitech webcams (Brio, C
 The preview and the stream overlay also work with the Mac's built-in camera and Continuity Camera, so
 calls are covered when the StreamCam is unplugged or another camera is in use. See
 [Other cameras](#other-cameras).
-
-## Controls
-
-| Options+ name | LogiCam Tuner | UVC control |
-| --- | --- | --- |
-| Auto exposure | Exposure mode: Camera / Smart / Manual | exposure mode |
-| Shutter speed | Shutter speed (1/30 s …), in stops | exposure time |
-| ISO | ISO (gain) | gain |
-| Low light compensation | Low-light boost | auto-exposure priority |
-| HDR | HDR (backlight compensation) | backlight compensation |
-| White balance | Mode: Camera / Smart / Manual, temperature in kelvin | white balance |
-| Brightness, contrast, saturation, sharpness | same | processing unit |
-| Zoom, pan, tilt | same | camera terminal |
-| Focus | Autofocus, focus | camera terminal |
-| Anti-flicker | Anti-flicker (50/60 Hz) | power-line frequency |
-
-Controls are discovered from the camera's own descriptor, so only supported controls appear. Gamma,
-hue, roll (the StreamCam's portrait/landscape sensor) and others show up when a camera has them.
 
 ## The app
 
@@ -137,45 +189,23 @@ Smart Auto never turns the camera on by itself: it runs only while another app i
 preview is open). Video is analysed in memory and never recorded or sent anywhere. When LogiCam Tuner
 quits, the camera's own automatics are switched back on; Smart Auto resumes at the next launch.
 
-## Install
+## Controls
 
-### Homebrew (recommended)
+| Options+ name | LogiCam Tuner | UVC control |
+| --- | --- | --- |
+| Auto exposure | Exposure mode: Camera / Smart / Manual | exposure mode |
+| Shutter speed | Shutter speed (1/30 s …), in stops | exposure time |
+| ISO | ISO (gain) | gain |
+| Low light compensation | Low-light boost | auto-exposure priority |
+| HDR | HDR (backlight compensation) | backlight compensation |
+| White balance | Mode: Camera / Smart / Manual, temperature in kelvin | white balance |
+| Brightness, contrast, saturation, sharpness | same | processing unit |
+| Zoom, pan, tilt | same | camera terminal |
+| Focus | Autofocus, focus | camera terminal |
+| Anti-flicker | Anti-flicker (50/60 Hz) | power-line frequency |
 
-```sh
-brew install --cask harsh-gulhane/tap/logicam-tuner
-```
-
-This puts **LogiCam Tuner.app** in Applications and the `logicam` command on your PATH (Homebrew may ask
-for your Mac password to copy the app). Update with `brew upgrade --cask logicam-tuner`.
-
-**First launch.** LogiCam Tuner is free and open source, and is not notarized by Apple (that needs a
-paid developer account), so macOS blocks it the first time:
-
-1. Open LogiCam Tuner. macOS says it "could not verify" the app; click **Done**.
-2. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to
-   LogiCam Tuner. Confirm with your password.
-3. Open the app again. macOS asks for camera access the first time the preview or Smart Auto needs video.
-
-Alternatively, run `xattr -dr com.apple.quarantine "/Applications/LogiCam Tuner.app"` once, which also
-clears the block for the `logicam` command. macOS may ask again after an update.
-
-### Download
-
-Download `LogiCam-Tuner-<version>.zip` from the [latest release](https://github.com/harsh-gulhane/logicam-tuner/releases/latest),
-unzip it, move **LogiCam Tuner.app** to Applications and follow the first-launch steps above. The
-`logicam` command is inside the app at `LogiCam Tuner.app/Contents/MacOS/logicam`.
-
-### Build from source
-
-Requires macOS 14 or later and Swift 5.10+ (Xcode or the Command Line Tools). Apps you build yourself
-are not blocked by macOS.
-
-```sh
-git clone https://github.com/harsh-gulhane/logicam-tuner.git
-cd logicam-tuner
-./scripts/build-app.sh          # builds "build/LogiCam Tuner.app" (universal, ad-hoc signed)
-open "build/LogiCam Tuner.app"
-```
+Controls are discovered from the camera's own descriptor, so only supported controls appear. Gamma,
+hue, roll (the StreamCam's portrait/landscape sensor) and others show up when a camera has them.
 
 ## CLI
 
