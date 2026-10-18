@@ -31,6 +31,15 @@ final class PreviewNSView: NSView {
 
     required init?(coder: NSCoder) { nil }
 
+    /// Layers added by hand do not inherit the display's scale; without this the preview renders
+    /// at half resolution on Retina screens and looks soft.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        layer?.contentsScale = scale
+        preview.contentsScale = scale
+    }
+
     override func layout() {
         super.layout()
         CATransaction.begin()

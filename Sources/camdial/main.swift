@@ -20,10 +20,11 @@ commands:
       --bias <ev>                exposure compensation, e.g. -0.5
       --warmth <-1...1>          white balance warmth
       --no-face                  meter the whole scene instead of faces
-      --min-fps <n>              lowest frame rate low light may drop to (default 15)
+      --min-fps <n>              lowest frame rate low light may drop to (default 15; 0 keeps it)
       --max-gain <0...1>         share of the gain range to use (default 1)
       --seconds <n>              stop after n seconds
       --watch                    only print measurements; change nothing
+      --fps <n>                  frame rate to request when no other app is streaming (default 30)
 
 options:
   --camera <index|serial>      choose a camera (default: first Logitech camera, else first camera)
@@ -213,6 +214,7 @@ func runSmartAuto() throws {
     let minFPS = takeOption("--min-fps").flatMap(Double.init)
     let maxGain = takeOption("--max-gain").flatMap(Double.init)
     let watch = takeFlag("--watch")
+    let fps = takeOption("--fps").flatMap(Double.init)
     let features = Set(args)
     guard features.isSubset(of: ["exposure", "white-balance"]) else {
         throw CLIError(description: "unknown auto feature in \(args.joined(separator: " "))")
@@ -226,6 +228,7 @@ func runSmartAuto() throws {
     guard granted else { throw CLIError(description: "camera access denied; allow it in System Settings → Privacy & Security → Camera") }
     guard let feed = CameraFeed(camera.info) else { throw CLIError(description: "AVFoundation cannot open \(camera.info.name)") }
 
+    if let fps { feed.preferredFrameRate = fps }
     let smart = SmartAuto(camera: camera, feed: feed, io: DispatchQueue(label: "camdial.io"))
     var settings = SmartAutoSettings()
     settings.exposure = !watch && (features.isEmpty || features.contains("exposure"))
@@ -240,7 +243,7 @@ func runSmartAuto() throws {
     smart.onStatistics = { stats in
         let face = stats.faceLuminance.map { String(format: "face %.3f", $0) } ?? "no face"
         let cast = stats.neutralCast.map { String(format: "neutral warmth %+.3f tint %+.3f", $0.warmth, $0.tint) } ?? "no neutrals"
-        print(String(format: "scene %.3f  %@  clipped %.1f%%  %@ (%.0f%%)  average warmth %+.3f", stats.sceneLuminance, face,
+        print(String(format: "%.0f fps  scene %.3f  %@  clipped %.1f%%  %@ (%.0f%%)  average warmth %+.3f", feed.measuredFrameRate, stats.sceneLuminance, face,
                      stats.clippedFraction * 100, cast, stats.neutralFraction * 100, stats.averageCast.warmth))
     }
     smart.onStatus = { status in

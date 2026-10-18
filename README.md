@@ -33,7 +33,8 @@ hue, roll (the StreamCam's portrait/landscape sensor) and others show up when a 
 
 The main window shows a large live preview beside every control, so each change is visible as you
 make it. A readout on the preview shows the current shutter speed, ISO and white balance. The
-preview can be mirrored like a video-call self-view, and it stops (camera light off) when the
+preview runs at 1080p and 30 or 60 fps, shows the measured frame rate, can be mirrored like a
+video-call self-view, and it stops (camera light off) when the
 window is closed, minimised or hidden.
 
 A menu-bar icon gives quick access to the same controls. Closing the window keeps CamDial running
@@ -55,7 +56,7 @@ manual controls itself:
   coloured shirt or wall does not pull the colour. With too few neutral pixels, it holds the current
   setting instead of guessing.
 - **Clean and flicker-free.** Shutter time is spent before gain, and snapped to whole mains periods
-  so lights do not band. You choose how low the frame rate may go in low light (30, 15 or 7.5 fps)
+  so lights do not band. You choose whether low light may lower the frame rate (keep it, or down to 30, 15 or 7.5 fps)
   and the highest ISO.
 - **Your taste.** Exposure compensation (±2 EV) and a warmth slider.
 

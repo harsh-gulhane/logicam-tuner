@@ -13,7 +13,8 @@ public struct SmartAutoSettings: Codable, Equatable, Sendable {
     /// Highest gain Smart Auto may use, as a share of the camera's range.
     public var maxGain = 1.0
     /// In low light, shutter time may grow until video drops to this frame rate. Lower is brighter
-    /// and less noisy, but less smooth. Values above the stream's frame rate keep it unchanged.
+    /// and less noisy, but less smooth. 0 (or any value at or above the stream's rate) keeps the
+    /// stream's frame rate.
     public var minimumFrameRate = 15.0
     /// -1 (cooler) ... 1 (warmer).
     public var warmth = 0.0
@@ -146,9 +147,22 @@ public final class SmartAuto: @unchecked Sendable {
         }
     }
 
+    /// Analysis runs off the capture queue so slow frames never make the camera drop frames.
+    /// While one frame is being analysed, newer frames are skipped rather than queued.
     private func process(_ buffer: CVPixelBuffer) {
-        state.sync { analyze(buffer) }
+        let start = lock.withLock { () -> Bool in
+            guard !analyzing else { return false }
+            analyzing = true
+            return true
+        }
+        guard start else { return }
+        state.async {
+            self.analyze(buffer)
+            self.lock.withLock { self.analyzing = false }
+        }
     }
+
+    private var analyzing = false
 
     private func analyze(_ buffer: CVPixelBuffer) {
         let now = CACurrentMediaTime()
@@ -190,7 +204,8 @@ public final class SmartAuto: @unchecked Sendable {
             let frameUnits = Int(feed.frameDuration * 10_000)
             let exposureLimits = ExposureLimits(
                 time: lo...hi, gain: gainRange,
-                maxTime: limits.framesMayLengthen ? max(frameUnits, Int(10_000 / max(settings.minimumFrameRate, 1))) : frameUnits,
+                maxTime: limits.framesMayLengthen && settings.minimumFrameRate > 0
+                    ? max(frameUnits, Int(10_000 / settings.minimumFrameRate)) : frameUnits,
                 maxGain: gainRange.lowerBound + Int(Double(gainRange.upperBound - gainRange.lowerBound) * settings.maxGain),
                 flickerPeriod: limits.flickerPeriod)
             if let next = exposureController.update(stats, current: current, limits: exposureLimits) {

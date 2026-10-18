@@ -24,6 +24,16 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     public let device: AVCaptureDevice
     /// Called on the feed's queue with each analysis-sized BGRA frame.
     public var onFrame: ((CVPixelBuffer) -> Void)?
+    /// Frame rate to ask for when CamDial is the only client. Another app's stream is never changed.
+    public var preferredFrameRate: Double {
+        get { lock.withLock { _preferredFrameRate } }
+        set { lock.withLock { _preferredFrameRate = newValue } }
+    }
+    /// Frames per second actually delivered over the last second or so; 0 when not streaming.
+    public var measuredFrameRate: Double { lock.withLock { frameTimes.count > 1 ? Double(frameTimes.count - 1) / max(frameTimes.last! - frameTimes.first!, 1e-3) : 0 } }
+    private let lock = NSLock()
+    private var _preferredFrameRate = 30.0
+    private var frameTimes: [Double] = []
     private let queue = DispatchQueue(label: "camdial.feed")
     private let output = AVCaptureVideoDataOutput()
 
@@ -103,7 +113,7 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
             guard !session.isRunning else { return }
             let locked = (try? device.lockForConfiguration()) != nil
             defer { if locked { device.unlockForConfiguration() } }
-            if locked, !isStreamingSomewhere, let (format, frameDuration) = Self.videoFormat(device) {
+            if locked, !isStreamingSomewhere, let (format, frameDuration) = Self.videoFormat(device, frameRate: preferredFrameRate) {
                 device.activeFormat = format
                 device.activeVideoMinFrameDuration = frameDuration
             }
@@ -115,24 +125,45 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         }
     }
 
-    /// The largest format up to 1080p that reaches 30 fps, with its 30 fps frame duration.
-    static func videoFormat(_ device: AVCaptureDevice) -> (AVCaptureDevice.Format, CMTime)? {
+    /// The largest format up to 1080p that reaches `frameRate`, with the matching frame duration.
+    /// Cameras such as the StreamCam list each rate as its own fixed range, often on separate formats.
+    static func videoFormat(_ device: AVCaptureDevice, frameRate: Double) -> (AVCaptureDevice.Format, CMTime)? {
         let candidates = device.formats.compactMap { format -> (AVCaptureDevice.Format, CMTime, Int32)? in
             let d = format.formatDescription.dimensions
-            guard d.width <= 1920, let range = format.videoSupportedFrameRateRanges.first(where: { $0.maxFrameRate >= 29.9 })
-            else { return nil }
-            let duration = range.minFrameRate <= 30 && range.maxFrameRate >= 30 ? CMTime(value: 1, timescale: 30) : range.minFrameDuration
+            guard d.width <= 1920, let range = format.videoSupportedFrameRateRanges.first(where: {
+                $0.minFrameRate <= frameRate + 0.5 && $0.maxFrameRate >= frameRate - 0.5
+            }) else { return nil }
+            let duration = range.minFrameRate == range.maxFrameRate ? range.minFrameDuration
+                : CMTime(value: 1000, timescale: CMTimeScale(frameRate * 1000))
             return (format, duration, d.width * d.height)
         }
         return candidates.max { $0.2 < $1.2 }.map { ($0.0, $0.1) }
     }
 
+    /// Resolution of the stream the camera is delivering.
+    public var dimensions: CMVideoDimensions { device.activeFormat.formatDescription.dimensions }
+
+    /// Restarts streaming so a new `preferredFrameRate` takes effect.
+    public func restart() {
+        guard isRunning else { return }
+        stop()
+        start()
+    }
+
     public func stop() {
-        queue.async { [session] in if session.isRunning { session.stopRunning() } }
+        queue.async { [self] in
+            if session.isRunning { session.stopRunning() }
+            lock.withLock { frameTimes = [] }
+        }
     }
 
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                               from connection: AVCaptureConnection) {
+        let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        lock.withLock {
+            frameTimes.append(time)
+            frameTimes.removeAll { $0 < time - 1 }
+        }
         guard let onFrame, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         onFrame(buffer)
     }

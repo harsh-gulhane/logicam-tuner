@@ -33,6 +33,16 @@ final class AppModel: ObservableObject {
     /// Views currently showing the live preview (the main window, the menu-bar panel).
     @Published private(set) var previewOwners: Set<String> = []
     var previewVisible: Bool { !previewOwners.isEmpty }
+    /// Frame rate CamDial asks for while it is the only app using the camera.
+    @Published var frameRate = UserDefaults.standard.object(forKey: "frameRate") as? Double ?? 60 {
+        didSet {
+            UserDefaults.standard.set(frameRate, forKey: "frameRate")
+            feed?.preferredFrameRate = frameRate
+            feed?.restart()
+        }
+    }
+    /// Resolution and measured frame rate of the stream, while CamDial is receiving it.
+    @Published private(set) var streamInfo: String?
     @Published private(set) var launchAtLogin = SMAppService.mainApp.status == .enabled
 
     private var camera: Camera?
@@ -56,7 +66,7 @@ final class AppModel: ObservableObject {
         monitor = CameraMonitor { [weak self] _ in self?.refreshCameras() }
         refreshCameras()
         // CoreMediaIO's "running somewhere" is polled: it is cheap, and there is no KVO for it.
-        usageTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+        usageTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.pollUsage() }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil,
@@ -126,6 +136,7 @@ final class AppModel: ObservableObject {
 
     private func attachFeed(_ camera: Camera) {
         guard let feed = CameraFeed(camera.info) else { return }
+        feed.preferredFrameRate = frameRate
         let smartAuto = SmartAuto(camera: camera, feed: feed, io: io)
         smartAuto.onStatus = { [weak self] status in self?.apply(status) }
         smartAuto.settings = smart
@@ -137,6 +148,7 @@ final class AppModel: ObservableObject {
     }
 
     private func pollUsage() {
+        updateStreamInfo()
         guard let feed, !probing else { return }
         guard feed.isRunning else {
             setCameraInUse(feed.isStreamingSomewhere)
@@ -154,6 +166,13 @@ final class AppModel: ObservableObject {
             self.setCameraInUse(feed.isStreamingSomewhere)
             self.updateFeed()
         }
+    }
+
+    private func updateStreamInfo() {
+        guard let feed, feed.isRunning else { streamInfo = nil; return }
+        let d = feed.dimensions
+        let fps = feed.measuredFrameRate
+        streamInfo = fps > 0 ? String(format: "%d×%d · %.0f fps", d.width, d.height, fps) : "\(d.width)×\(d.height)"
     }
 
     private func setCameraInUse(_ inUse: Bool) {

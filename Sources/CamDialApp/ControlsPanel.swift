@@ -36,7 +36,8 @@ struct ControlsPanel: View {
                 .help("Meters detected faces first, so a window behind you does not leave your face dark.")
             Picker("In low light", selection: Binding(get: { model.smart.minimumFrameRate },
                                                       set: { v in model.updateSmart { $0.minimumFrameRate = v } })) {
-                Text("Keep frame rate").tag(30.0)
+                Text("Keep frame rate").tag(0.0)
+                Text("Down to 30 fps").tag(30.0)
                 Text("Down to 15 fps").tag(15.0)
                 Text("Down to 7.5 fps").tag(7.5)
             }

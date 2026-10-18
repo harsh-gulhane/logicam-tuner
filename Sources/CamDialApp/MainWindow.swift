@@ -66,6 +66,7 @@ struct MainView: View {
         if let s = model.states["gain"] { parts.append("ISO \(s.current)") }
         if let s = model.states["white_balance"] { parts.append(ControlCatalog.format(s.control.id, s.current)) }
         if model.smart.isEnabled { parts.append("Smart") }
+        if let stream = model.streamInfo { parts.append(stream) }
         return parts.joined(separator: "  ·  ")
     }
 
@@ -76,6 +77,12 @@ struct MainView: View {
                 GroupBox("App") {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Mirror preview", isOn: $mirrored)
+                        Picker("Preview frame rate", selection: $model.frameRate) {
+                            Text("30 fps").tag(30.0)
+                            Text("60 fps").tag(60.0)
+                        }
+                        Text("Video apps choose their own resolution and frame rate. While one is using the camera, the preview shows that stream unchanged. Shutter speeds longer than one frame (1/60 s at 60 fps) lower the frame rate when Low-light boost is on.")
+                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: model.setLaunchAtLogin))
                         Text("Closing this window keeps CamDial in the menu bar, so Smart Auto keeps working.")
                             .font(.caption).foregroundStyle(.secondary)
