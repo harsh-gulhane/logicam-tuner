@@ -113,11 +113,19 @@ struct MainView: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
+            // A Picker placed here draws an empty capsule on macOS 26 and later, and the toolbar shows a
+            // menu's icon without its title; the window subtitle names the selected camera.
             if model.cameras.count > 1 {
-                Picker("Camera", selection: Binding(get: { model.selectedCameraID }, set: { $0.map(model.chooseCamera) })) {
-                    ForEach(model.cameras) { Text($0.name).tag(Optional($0.id)) }
+                Menu {
+                    Picker("Camera", selection: Binding(get: { model.selectedCameraID }, set: { $0.map(model.chooseCamera) })) {
+                        ForEach(model.cameras) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } label: {
+                    Label("Camera", systemImage: "web.camera")
                 }
-                .help("While LogiCam Tuner is in the background, the overlay follows whichever camera an app is using")
+                .help("Choose the camera. While LogiCam Tuner is in the background, the overlay follows whichever camera an app is using.")
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {

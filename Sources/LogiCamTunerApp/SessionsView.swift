@@ -18,7 +18,7 @@ struct SessionsView: View {
                 ForEach(monitor.sessions.prefix(10)) { session in
                     VStack(alignment: .leading, spacing: 1) {
                         HStack {
-                            Text(session.app + (session.appIsGuess ? "?" : "")).fontWeight(.medium)
+                            Text(session.app + (session.appIsGuess && session.app != "Unknown app" ? "?" : "")).fontWeight(.medium)
                             Spacer()
                             Text(session.startedAt, format: .dateTime.day().month().hour().minute())
                                 .font(.caption).foregroundStyle(.secondary)
