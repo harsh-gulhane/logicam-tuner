@@ -182,16 +182,8 @@ public final class SmartAuto: @unchecked Sendable {
         // Keep the last faces briefly so a missed detection does not jump exposure.
         if now - lastFaceSeen > 1.5 { faces = [] }
 
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_32BGRA,
-              let base = CVPixelBufferGetBaseAddress(buffer) else { return }
-        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
-        let stats = FrameAnalyzer.analyze(bgra: UnsafeRawBufferPointer(start: base, count: bytesPerRow * height),
-                                          width: width, height: height, bytesPerRow: bytesPerRow,
-                                          faces: settings.facePriority ? faces : [],
-                                          searchCenter: whiteBalanceController.searchCenter)
+        guard let stats = FrameAnalyzer.analyze(buffer, faces: settings.facePriority ? faces : [],
+                                                searchCenter: whiteBalanceController.searchCenter) else { return }
         onStatistics?(stats)
         // Exposure changes take a few frames to reach the output.
         let settle = max(0.3, 4 * feed.frameDuration)

@@ -20,13 +20,14 @@ extension CameraInfo {
 /// When another app is already streaming, the session uses the device's active format so it never
 /// changes what that app receives.
 ///
-/// Previews are drawn from a separate full-resolution output into `AVSampleBufferDisplayLayer`s.
-/// `AVCaptureVideoPreviewLayer` is not used: in a session that also has the small analysis output it
-/// showed a visibly low-resolution picture of a 1080p stream.
+/// One full-resolution output in the camera's native format feeds both the previews
+/// (`AVSampleBufferDisplayLayer`s) and Smart Auto, which samples frames in place. A separate scaled
+/// analysis output cost a scaled copy of every frame, and `AVCaptureVideoPreviewLayer` in a session
+/// with that output showed a visibly low-resolution picture of a 1080p stream.
 public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     public let session = AVCaptureSession()
     public let device: AVCaptureDevice
-    /// Called on the feed's queue with each analysis-sized BGRA frame.
+    /// Called on the feed's queue with each full-resolution frame; return quickly.
     public var onFrame: ((CVPixelBuffer) -> Void)?
     /// Frame rate to ask for when CamDial is the only client. Another app's stream is never changed.
     public var preferredFrameRate: Double {
@@ -40,30 +41,19 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     private var frameTimes: [Double] = []
     private let queue = DispatchQueue(label: "camdial.feed")
     private let output = AVCaptureVideoDataOutput()
-    private let displayOutput = AVCaptureVideoDataOutput()
-    private let displayQueue = DispatchQueue(label: "camdial.display")
     private var displayLayers: [AVSampleBufferDisplayLayer] = []
 
-    public init?(_ camera: CameraInfo, analysisWidth: Int = 256) {
+    public init?(_ camera: CameraInfo) {
         guard let device = camera.captureDevice(), let input = try? AVCaptureDeviceInput(device: device) else { return nil }
         self.device = device
         self.input = input
         super.init()
-        let dimensions = device.activeFormat.formatDescription.dimensions
-        let aspect = dimensions.width > 0 ? Double(dimensions.height) / Double(dimensions.width) : 9.0 / 16
+        // The camera's native bi-planar format, unscaled: no conversion before display or analysis.
         output.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: analysisWidth,
-            kCVPixelBufferHeightKey as String: Int((Double(analysisWidth) * aspect).rounded()),
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
         ]
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: queue)
-        // The camera's native bi-planar format, unscaled: no conversion before display.
-        displayOutput.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-        ]
-        displayOutput.alwaysDiscardsLateVideoFrames = true
-        displayOutput.setSampleBufferDelegate(self, queue: displayQueue)
     }
 
     private let input: AVCaptureDeviceInput
@@ -132,9 +122,7 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
             }
             session.beginConfiguration()
             if session.inputs.isEmpty, session.canAddInput(input) { session.addInput(input) }
-            for out in [output, displayOutput] where !session.outputs.contains(out) && session.canAddOutput(out) {
-                session.addOutput(out)
-            }
+            if session.outputs.isEmpty, session.canAddOutput(output) { session.addOutput(output) }
             session.commitConfiguration()
             session.startRunning()
         }
@@ -183,9 +171,13 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
 
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                               from connection: AVCaptureConnection) {
-        if output === displayOutput {
-            let layers = lock.withLock { displayLayers }
-            guard !layers.isEmpty else { return }
+        let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        let layers = lock.withLock { () -> [AVSampleBufferDisplayLayer] in
+            frameTimes.append(time)
+            frameTimes.removeAll { $0 < time - 1 }
+            return displayLayers
+        }
+        if !layers.isEmpty {
             // Live video: show each frame as soon as it arrives rather than by its timestamp.
             if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
                CFArrayGetCount(attachments) > 0 {
@@ -197,12 +189,6 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
                 if layer.status == .failed { layer.flush() }
                 layer.enqueue(sampleBuffer)
             }
-            return
-        }
-        let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
-        lock.withLock {
-            frameTimes.append(time)
-            frameTimes.removeAll { $0 < time - 1 }
         }
         guard let onFrame, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         onFrame(buffer)

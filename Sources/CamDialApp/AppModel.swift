@@ -170,10 +170,13 @@ final class AppModel: ObservableObject {
     }
 
     private func updateStreamInfo() {
-        guard let feed, feed.isRunning else { streamInfo = nil; return }
-        let d = feed.dimensions
-        let fps = feed.measuredFrameRate
-        streamInfo = fps > 0 ? String(format: "%d×%d · %.0f fps", d.width, d.height, fps) : "\(d.width)×\(d.height)"
+        var info: String?
+        if let feed, feed.isRunning {
+            let d = feed.dimensions
+            let fps = feed.measuredFrameRate
+            info = fps > 0 ? String(format: "%d×%d · %.0f fps", d.width, d.height, fps) : "\(d.width)×\(d.height)"
+        }
+        if info != streamInfo { streamInfo = info }
     }
 
     private func setCameraInUse(_ inUse: Bool) {
@@ -213,7 +216,8 @@ final class AppModel: ObservableObject {
     private func apply(_ status: SmartAutoStatus) {
         if status.problem != smartStatus?.problem, let problem = status.problem { log.error("smart auto: \(problem)") }
         if status.needsMoreLight != smartStatus?.needsMoreLight { log.notice("smart auto needs more light: \(status.needsMoreLight)") }
-        smartStatus = status
+        // Publishing redraws every control, so only publish real changes.
+        if status != smartStatus { smartStatus = status }
         // Show Smart Auto's values live without re-reading the camera.
         if let e = status.exposure {
             if let s = states["exposure_time"], s.current != e.time { states["exposure_time"] = s.with(current: e.time) }

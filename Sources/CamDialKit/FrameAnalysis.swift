@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreVideo
 import Foundation
 
 /// A colour cast in log-chroma space. `warmth` > 0 means amber (more red than blue);
@@ -37,7 +38,7 @@ public struct FrameStatistics: Equatable, Sendable {
     public var averageCast: Chroma
 }
 
-/// Computes `FrameStatistics` from 8-bit BGRA pixels, as delivered by AVFoundation.
+/// Computes `FrameStatistics` from 8-bit video frames: BGRA, or the bi-planar YCbCr cameras deliver natively.
 public enum FrameAnalyzer {
     /// sRGB transfer decoded once per code value.
     static let linear: [Double] = (0..<256).map { code in
@@ -53,6 +54,63 @@ public enum FrameAnalyzer {
                                faces: [CGRect] = [], searchCenter: Chroma = .neutral,
                                maxSamples: Int = 40_000) -> FrameStatistics {
         precondition(bytesPerRow >= width * 4 && bgra.count >= bytesPerRow * max(height - 1, 0) + width * 4)
+        let base = bgra.baseAddress!
+        return analyze(width: width, height: height, faces: faces, searchCenter: searchCenter, maxSamples: maxSamples) { x, y in
+            let p = base + y * bytesPerRow + x * 4
+            return (p.load(fromByteOffset: 2, as: UInt8.self), p.load(fromByteOffset: 1, as: UInt8.self),
+                    p.load(fromByteOffset: 0, as: UInt8.self))
+        }
+    }
+
+    /// Analyses a pixel buffer in BGRA or 8-bit bi-planar 4:2:0 YCbCr, sampling it
+    /// in place so full-resolution frames need no scaled copy. Returns nil for other formats.
+    public static func analyze(_ buffer: CVPixelBuffer, faces: [CGRect] = [], searchCenter: Chroma = .neutral,
+                               maxSamples: Int = 40_000) -> FrameStatistics? {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+        let format = CVPixelBufferGetPixelFormatType(buffer)
+        if format == kCVPixelFormatType_32BGRA, let base = CVPixelBufferGetBaseAddress(buffer) {
+            let bytesPerRow = CVPixelBufferGetBytesPerRow(buffer)
+            return analyze(bgra: UnsafeRawBufferPointer(start: base, count: bytesPerRow * height), width: width,
+                           height: height, bytesPerRow: bytesPerRow, faces: faces, searchCenter: searchCenter,
+                           maxSamples: maxSamples)
+        }
+        let fullRange = format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+        guard fullRange || format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+              let lumaBase = CVPixelBufferGetBaseAddressOfPlane(buffer, 0),
+              let chromaBase = CVPixelBufferGetBaseAddressOfPlane(buffer, 1) else { return nil }
+        let lumaRow = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        let chromaRow = CVPixelBufferGetBytesPerRowOfPlane(buffer, 1)
+        let matrix = CVBufferCopyAttachment(buffer, kCVImageBufferYCbCrMatrixKey, nil) as? String
+        let ycbcr = YCbCr(bt601: matrix == (kCVImageBufferYCbCrMatrix_ITU_R_601_4 as String), fullRange: fullRange)
+        return analyze(width: width, height: height, faces: faces, searchCenter: searchCenter, maxSamples: maxSamples) { x, y in
+            let luma = lumaBase.load(fromByteOffset: y * lumaRow + x, as: UInt8.self)
+            let c = chromaBase + (y / 2) * chromaRow + (x / 2) * 2
+            return ycbcr.rgb(luma, c.load(fromByteOffset: 0, as: UInt8.self), c.load(fromByteOffset: 1, as: UInt8.self))
+        }
+    }
+
+    /// 8-bit YCbCr to gamma-encoded RGB.
+    struct YCbCr {
+        let bt601: Bool
+        let fullRange: Bool
+
+        func rgb(_ y: UInt8, _ cb: UInt8, _ cr: UInt8) -> (UInt8, UInt8, UInt8) {
+            let l = fullRange ? Double(y) : (Double(y) - 16) * 255 / 219
+            let scale = fullRange ? 1.0 : 255.0 / 224
+            let u = (Double(cb) - 128) * scale, v = (Double(cr) - 128) * scale
+            let (r, g, b) = bt601
+                ? (l + 1.402 * v, l - 0.344136 * u - 0.714136 * v, l + 1.772 * u)
+                : (l + 1.5748 * v, l - 0.1873 * u - 0.4681 * v, l + 1.8556 * u)
+            func clamp(_ x: Double) -> UInt8 { UInt8(min(max(x.rounded(), 0), 255)) }
+            return (clamp(r), clamp(g), clamp(b))
+        }
+    }
+
+    /// The shared measurement over sampled pixels; `pixel` returns gamma-encoded (r, g, b) at (x, y).
+    static func analyze(width: Int, height: Int, faces: [CGRect], searchCenter: Chroma, maxSamples: Int,
+                        pixel: (Int, Int) -> (UInt8, UInt8, UInt8)) -> FrameStatistics {
         let stride = max(1, Int((Double(width * height) / Double(maxSamples)).squareRoot().rounded(.up)))
         // Shrink face boxes slightly so hair and background at the edges do not count as face.
         let faceBoxes = faces.map { $0.insetBy(dx: $0.width * 0.1, dy: $0.height * 0.1) }
@@ -64,13 +122,9 @@ public enum FrameAnalyzer {
         let floor = 1e-3
 
         for y in Swift.stride(from: 0, to: height, by: stride) {
-            let row = bgra.baseAddress! + y * bytesPerRow
             let ny = (Double(y) + 0.5) / Double(height)
             for x in Swift.stride(from: 0, to: width, by: stride) {
-                let p = row + x * 4
-                let b8 = p.load(fromByteOffset: 0, as: UInt8.self)
-                let g8 = p.load(fromByteOffset: 1, as: UInt8.self)
-                let r8 = p.load(fromByteOffset: 2, as: UInt8.self)
+                let (r8, g8, b8) = pixel(x, y)
                 let r = linear[Int(r8)], g = linear[Int(g8)], b = linear[Int(b8)]
                 let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
                 let nx = (Double(x) + 0.5) / Double(width)

@@ -1,5 +1,6 @@
 // Offline checks for CamDialKit. Run with `swift run CamDialKitChecks`; exits non-zero on failure.
 @testable import CamDialKit
+import CoreVideo
 import Foundation
 
 var failures = 0
@@ -238,6 +239,35 @@ let darkFace = analyze(frame { x, y in face.contains(CGPoint(x: (Double(x) + 0.5
 check(darkFace.faceLuminance.map { $0 < 0.05 } == true && darkFace.sceneLuminance > 0.05, "face luminance is measured separately")
 let clipped = analyze(frame { _, _ in (255, 255, 255) })
 check(clipped.clippedFraction > 0.99, "white frame is clipped")
+
+/// A camera-native 4:2:0 video-range BT.709 frame of one colour.
+func ycbcrFrame(_ r: Double, _ g: Double, _ b: Double) -> CVPixelBuffer {
+    var buffer: CVPixelBuffer?
+    CVPixelBufferCreate(nil, 64, 36, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, nil, &buffer)
+    let pb = buffer!
+    let yp = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    let y = UInt8((16 + yp * 219 / 255).rounded())
+    let cb = UInt8((128 + (b - yp) / 1.8556 * 224 / 255).rounded())
+    let cr = UInt8((128 + (r - yp) / 1.5748 * 224 / 255).rounded())
+    CVPixelBufferLockBaseAddress(pb, [])
+    let luma = CVPixelBufferGetBaseAddressOfPlane(pb, 0)!.assumingMemoryBound(to: UInt8.self)
+    let chroma = CVPixelBufferGetBaseAddressOfPlane(pb, 1)!.assumingMemoryBound(to: UInt8.self)
+    for row in 0..<36 { for col in 0..<64 { luma[row * CVPixelBufferGetBytesPerRowOfPlane(pb, 0) + col] = y } }
+    for row in 0..<18 {
+        for col in 0..<32 {
+            chroma[row * CVPixelBufferGetBytesPerRowOfPlane(pb, 1) + col * 2] = cb
+            chroma[row * CVPixelBufferGetBytesPerRowOfPlane(pb, 1) + col * 2 + 1] = cr
+        }
+    }
+    CVPixelBufferUnlockBaseAddress(pb, [])
+    return pb
+}
+let ycbcrGrey = FrameAnalyzer.analyze(ycbcrFrame(128, 128, 128))
+check(ycbcrGrey.map { abs($0.sceneLuminance - grey.sceneLuminance) < 0.005 && abs($0.neutralCast?.warmth ?? 1) < 0.02 } == true,
+      "native YCbCr frames measure like BGRA (grey)")
+let ycbcrAmber = FrameAnalyzer.analyze(ycbcrFrame(180, 128, 90))
+check(ycbcrAmber.map { abs($0.averageCast.warmth - amber.averageCast.warmth) < 0.05 } == true,
+      "native YCbCr frames measure like BGRA (amber)")
 
 // MARK: Smart Auto settings
 
