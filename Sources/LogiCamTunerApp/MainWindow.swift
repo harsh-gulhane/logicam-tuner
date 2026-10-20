@@ -41,7 +41,7 @@ struct MainView: View {
         ZStack(alignment: .bottomLeading) {
             Color.black
             if model.selectedCamera == nil {
-                Text("No USB video camera found.").foregroundStyle(.secondary)
+                Text("No camera found.").foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let feed = model.previewFeed {
                 PreviewView(feed: feed, mirrored: mirrored)
@@ -81,7 +81,7 @@ struct MainView: View {
     private var controlsPane: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if model.selectedCamera != nil { ControlsPanel() }
+                if model.selectedCamera?.uvc != nil { ControlsPanel() } else if model.selectedCamera != nil { NoControlsNote() }
                 SessionsView(monitor: model.liveMonitor)
                 GroupBox("App") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -100,7 +100,7 @@ struct MainView: View {
                         Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: model.setLaunchAtLogin))
                         Text("Closing this window keeps LogiCam Tuner in the menu bar, so Smart Auto keeps working.")
                             .font(.caption).foregroundStyle(.secondary)
-                        Text("Unofficial community app, not affiliated with Logitech.")
+                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development build") · unofficial community app, not affiliated with Logitech.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(4)
@@ -113,19 +113,28 @@ struct MainView: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
+            // A Picker placed here draws an empty capsule on macOS 26 and later, and the toolbar shows a
+            // menu's icon without its title; the window subtitle names the selected camera.
             if model.cameras.count > 1 {
-                Picker("Camera", selection: $model.selectedCameraID) {
-                    ForEach(model.cameras) { Text($0.name).tag(Optional($0.id)) }
+                Menu {
+                    Picker("Camera", selection: Binding(get: { model.selectedCameraID }, set: { $0.map(model.chooseCamera) })) {
+                        ForEach(model.cameras) { Text($0.name).tag(Optional($0.id)) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } label: {
+                    Label("Camera", systemImage: "web.camera")
                 }
+                .help("Choose the camera. While LogiCam Tuner is in the background, the overlay follows whichever camera an app is using.")
             }
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Toggle(isOn: $mirrored) { Label("Mirror", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right") }
                 .help("Mirror the preview")
             Button { model.reload() } label: { Label("Re-read camera", systemImage: "arrow.clockwise") }
-                .help("Re-read camera").disabled(model.selectedCamera == nil)
+                .help("Re-read camera").disabled(model.selectedCamera?.uvc == nil)
             Button { model.resetToDefaults() } label: { Label("Reset to defaults", systemImage: "arrow.counterclockwise.circle") }
-                .help("Reset every control to the camera's default").disabled(model.selectedCamera == nil)
+                .help("Reset every control to the camera's default").disabled(model.selectedCamera?.uvc == nil)
         }
     }
 }
@@ -141,7 +150,6 @@ struct MenuView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("LogiCam Tuner").font(.headline)
                     if let camera = model.selectedCamera { Text(camera.name).font(.caption).foregroundStyle(.secondary) }
-                    CameraUsersLabel(monitor: model.liveMonitor)
                 }
                 Spacer()
                 Button {
@@ -150,10 +158,13 @@ struct MenuView: View {
                 } label: { Label("Open LogiCam Tuner", systemImage: "macwindow") }
                     .help("Open the main window with a large live preview")
             }
-            if model.selectedCamera != nil {
+            MenuStreamSection(monitor: model.liveMonitor)
+            if model.selectedCamera?.uvc != nil {
                 ScrollView { ControlsPanel() }.frame(maxHeight: 520)
+            } else if model.selectedCamera != nil {
+                NoControlsNote()
             } else {
-                Text("No USB video camera found.").foregroundStyle(.secondary)
+                Text("No camera found.").foregroundStyle(.secondary)
             }
             if let error = model.errorMessage {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(3)
@@ -163,7 +174,7 @@ struct MenuView: View {
             }
             .font(.caption)
             HStack {
-                Button("Reset to defaults") { model.resetToDefaults() }.disabled(model.selectedCamera == nil)
+                Button("Reset to defaults") { model.resetToDefaults() }.disabled(model.selectedCamera?.uvc == nil)
                 Spacer()
                 Button("Quit LogiCam Tuner") { NSApplication.shared.terminate(nil) }
             }
@@ -173,16 +184,48 @@ struct MenuView: View {
     }
 }
 
-/// "In use by …" for the menu-bar panel.
-struct CameraUsersLabel: View {
+/// In place of the controls, for cameras such as the Mac's built-in one that only macOS adjusts.
+struct NoControlsNote: View {
+    var body: some View {
+        GroupBox("Camera") {
+            Text("macOS sets this camera's exposure, white balance and focus itself; it has no manual controls or Smart Auto. The overlay and the readout on the preview show what it chose. Portrait, Studio Light and Center Stage are under Video Effects in Control Centre while an app uses the camera.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .padding(4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// The live stream's stats in the menu-bar panel, for a quick look without the overlay. The
+/// details fold away; the one-line summary stays.
+struct MenuStreamSection: View {
     @ObservedObject var monitor: LiveMonitor
     @EnvironmentObject private var model: AppModel
+    @AppStorage("menuStatsExpanded") private var expanded = true
 
     var body: some View {
-        if model.cameraInUse {
-            let names = monitor.live?.appNames
-            Text(names.map { "In use by \($0)" + (monitor.live?.appsAreGuess == true ? "?" : "") } ?? "In use by another app")
-                .font(.caption).foregroundStyle(.green).lineLimit(2)
+        GroupBox {
+            if let live = monitor.live {
+                DisclosureGroup(isExpanded: $expanded) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        StreamStatsView(live: live).font(.caption)
+                        if model.cameraInUse, !model.isOverlayVisible {
+                            Button("Show overlay") { model.showOverlay() }.buttonStyle(.link).font(.caption)
+                        }
+                    }
+                    .padding(.top, 4)
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle().fill(.green).frame(width: 7, height: 7)
+                        Text(StreamText.appName(live, cameraInUse: model.cameraInUse)).fontWeight(.medium).lineLimit(1)
+                        Spacer()
+                        Text(StreamText.summary(live)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Label("Camera idle", systemImage: "video.slash").font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }

@@ -121,12 +121,13 @@ public enum ControlCatalog {
     }
 }
 
-/// UVC exposure time is in 100 µs units.
+/// Shutter times as photographers write them. UVC exposure time is in 100 µs units.
 public enum ShutterSpeed {
     public static func seconds(units: Int) -> Double { Double(units) / 10_000 }
 
-    public static func label(units: Int) -> String {
-        let seconds = seconds(units: units)
+    public static func label(units: Int) -> String { label(seconds: seconds(units: units)) }
+
+    public static func label(seconds: Double) -> String {
         guard seconds > 0 else { return "0 s" }
         return seconds >= 0.5 ? String(format: "%.1f s", seconds) : "1/\(Int((1 / seconds).rounded())) s"
     }

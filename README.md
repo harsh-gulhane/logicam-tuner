@@ -1,11 +1,85 @@
-# LogiCam Tuner
+<p align="center">
+  <img src="docs/images/logo.png" width="128" height="128" alt="LogiCam Tuner logo">
+</p>
 
-**An open-source Mac app for the Logitech StreamCam:** every camera setting Logi Options+ offers,
-smarter auto exposure and white balance, a sharp live preview, a live stream-stats overlay, and a fix
-for WhatsApp's 5 fps video.
+<h1 align="center">LogiCam Tuner</h1>
+
+<p align="center">
+  <strong>An open-source Mac app for the Logitech StreamCam.</strong><br>
+  Every setting Logi Options+ offers, smarter auto exposure and white balance, a sharp live preview,
+  live stream stats for every call, and a fix for WhatsApp's 5 fps video.
+</p>
+
+<p align="center">
+  <a href="https://github.com/harsh-gulhane/logicam-tuner/releases/latest"><img src="https://img.shields.io/github/v/release/harsh-gulhane/logicam-tuner" alt="Release"></a>
+  <a href="https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml"><img src="https://github.com/harsh-gulhane/logicam-tuner/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-lightgrey" alt="macOS 14 or later">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+</p>
+
+```sh
+brew install --cask harsh-gulhane/tap/logicam-tuner
+```
 
 > Unofficial community project, not made, affiliated with or endorsed by Logitech.
 > See [Trademarks and disclaimer](#trademarks-and-disclaimer).
+
+## Highlights
+
+- **Every StreamCam setting, instantly.** Shutter speed, ISO, HDR, white balance, focus, zoom,
+  anti-flicker and more, applied the moment you move a slider. No Logi Options+ needed.
+- **Smart Auto.** Exposure that meters your face and white balance taken from grey surfaces, which
+  settle and stay put instead of drifting.
+- **Sharp live preview.** Full 1080p at up to 60 fps, right next to the controls.
+- **Stream stats for every call.** A floating overlay shows which app is using the camera, the
+  resolution, the real frame rate, shutter, ISO and white balance. Drag it anywhere, shrink it to one
+  line, or check the same stats from the menu bar.
+- **Smooth WhatsApp video.** WhatsApp picks a mode the StreamCam can only run at 5 fps; LogiCam Tuner
+  switches it to 1080p at 30 fps automatically.
+- **The MacBook camera too.** The overlay and preview follow whichever camera a call uses, including
+  the built-in camera and Continuity Camera.
+- **Camera on only when needed.** LogiCam Tuner never turns the camera light on by itself, and it comes
+  with a `logicam` command-line tool.
+
+## Install
+
+### Homebrew (recommended)
+
+```sh
+brew install --cask harsh-gulhane/tap/logicam-tuner
+```
+
+This puts **LogiCam Tuner.app** in Applications and the `logicam` command on your PATH (Homebrew may ask
+for your Mac password to copy the app). Update with `brew upgrade --cask logicam-tuner`.
+
+**First launch.** LogiCam Tuner is free and open source, and is not notarized by Apple (that needs a
+paid developer account), so macOS blocks it the first time:
+
+1. Open LogiCam Tuner. macOS says it "could not verify" the app; click **Done**.
+2. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to
+   LogiCam Tuner. Confirm with your password.
+3. Open the app again. macOS asks for camera access the first time the preview or Smart Auto needs video.
+
+Alternatively, run `xattr -dr com.apple.quarantine "/Applications/LogiCam Tuner.app"` once, which also
+clears the block for the `logicam` command. macOS may ask again after an update.
+
+### Download
+
+Download `LogiCam-Tuner-<version>.zip` from the [latest release](https://github.com/harsh-gulhane/logicam-tuner/releases/latest),
+unzip it, move **LogiCam Tuner.app** to Applications and follow the first-launch steps above. The
+`logicam` command is inside the app at `LogiCam Tuner.app/Contents/MacOS/logicam`.
+
+### Build from source
+
+Requires macOS 14 or later and Swift 5.10+ (Xcode or the Command Line Tools). Apps you build yourself
+are not blocked by macOS.
+
+```sh
+git clone https://github.com/harsh-gulhane/logicam-tuner.git
+cd logicam-tuner
+./scripts/build-app.sh          # builds "build/LogiCam Tuner.app" (universal, ad-hoc signed)
+open "build/LogiCam Tuner.app"
+```
 
 ## Why I built this
 
@@ -21,51 +95,62 @@ mechanism Logitech's own agent uses. It does not need Logi Options+, Logi Tune, 
 driver. It is built and tested on the StreamCam; other Logitech webcams (Brio, C920, C922…) and most USB
 (UVC) webcams should work too, but are untested so far.
 
-## Controls
-
-| Options+ name | LogiCam Tuner | UVC control |
-| --- | --- | --- |
-| Auto exposure | Exposure mode: Camera / Smart / Manual | exposure mode |
-| Shutter speed | Shutter speed (1/30 s …), in stops | exposure time |
-| ISO | ISO (gain) | gain |
-| Low light compensation | Low-light boost | auto-exposure priority |
-| HDR | HDR (backlight compensation) | backlight compensation |
-| White balance | Mode: Camera / Smart / Manual, temperature in kelvin | white balance |
-| Brightness, contrast, saturation, sharpness | same | processing unit |
-| Zoom, pan, tilt | same | camera terminal |
-| Focus | Autofocus, focus | camera terminal |
-| Anti-flicker | Anti-flicker (50/60 Hz) | power-line frequency |
-
-Controls are discovered from the camera's own descriptor, so only supported controls appear. Gamma,
-hue, roll (the StreamCam's portrait/landscape sensor) and others show up when a camera has them.
+The preview and the stream overlay also work with the Mac's built-in camera and Continuity Camera, so
+calls are covered when the StreamCam is unplugged or another camera is in use. See
+[Other cameras](#other-cameras).
 
 ## The app
 
 The main window shows a large live preview beside every control, so each change is visible as you
 make it. A readout on the preview shows the current shutter speed, ISO and white balance. The
-preview runs at 1080p and 30 or 60 fps, shows the measured frame rate, can be mirrored like a
-video-call self-view, and it stops (camera light off) when the
-window is closed, minimised or hidden.
+preview runs at 1080p and 30 or 60 fps (the Mac's built-in camera tops out at 30), shows the measured
+frame rate, can be mirrored like a video-call self-view, and stops (camera light off) when the window
+is closed, minimised or hidden. The camera picker in the toolbar switches between the StreamCam, the
+built-in camera and any other camera.
+
+A menu-bar icon gives quick access to the same controls and to the live stream's stats. Closing the
+window keeps LogiCam Tuner running there, so Smart Auto keeps working; quit from the menu-bar icon.
+
+Also: presets per camera (one can apply automatically whenever the camera connects) and Open at login.
 
 ## Stream overlay
 
 A small floating panel shows, while any app uses the camera:
 
-- which apps are using it (e.g. "Google Chrome", "FaceTime", "WhatsApp"),
+- which apps are using it (e.g. "Google Chrome", "FaceTime", "WhatsApp") and which camera,
 - the resolution, configured frame rate and the frame rate actually delivered, and the pixel format,
 - exposure (mode, shutter, ISO), white balance, focus, brightness, zoom, HDR, anti-flicker and low-light boost,
 - Smart Auto's status and how long the camera has been on.
 
-It stays above other windows, appears on every Space and over full-screen apps, never takes focus
-from the call, and can be dragged anywhere. Choose Off / While an app uses the camera / Always in the
-App section or the menu-bar panel. The main window keeps a list of recent camera sessions so you can
-compare how Meet, WhatsApp and FaceTime configure the camera; `logicam who` prints the same from the
-terminal.
+It stays above other windows, appears on every Space and over full-screen apps, and never takes focus
+from the call. Drag it anywhere (it remembers the spot), minimise it to a single line with the app,
+resolution and frame rate using the chevron, or close it until the camera is next used. Choose Off /
+While an app uses the camera / Always in the App section or the menu-bar panel.
+
+The same stats are in the menu-bar panel, so a quick look needs no overlay at all: its **Live stream**
+section shows the one-line summary and folds open to every detail, with a link to bring back a closed
+overlay.
+
+The main window keeps a list of recent camera sessions so you can compare how Meet, WhatsApp and
+FaceTime configure the camera; `logicam who` shows which cameras are streaming from the terminal.
 
 macOS has no public API that names the apps using a camera. LogiCam Tuner reports the apps that are
 capturing the microphone while the camera runs, as call apps do, and otherwise the frontmost app
 known to use cameras (marked with "?"). An app using the camera with its microphone fully off is
 shown as "Unknown app". Resolution and frame rate are the camera's: apps may scale the picture further.
+
+### Other cameras
+
+The overlay follows whichever camera an app is using: the StreamCam, the Mac's built-in camera or a
+Continuity Camera iPhone. When a call uses a different camera, LogiCam Tuner switches to it while it is
+in the background, and returns to the camera picked in the window once no app is using a camera. If
+apps use several cameras at once, the StreamCam (or another UVC camera) is shown, since Smart Auto runs
+there.
+
+macOS adjusts the built-in camera itself and offers no manual controls for it, so there are no sliders
+or Smart Auto for it. Instead, the overlay and the preview's readout show what the camera reports with
+each frame: shutter speed, ISO, colour temperature and light level, plus resolution and frame rate. The
+camera picker in the window's toolbar selects any camera for the preview.
 
 ### Slow video modes (WhatsApp)
 
@@ -76,11 +161,6 @@ of seconds after such an app starts. The camera's mode is shared by every app us
 receives the smoother video after a pause of about a second. Only a mode with the same picture shape
 is used, and LogiCam Tuner tries at most twice per session, so an app that insists on its own mode is
 not fought over. The overlay and session history show when this happened.
-
-A menu-bar icon gives quick access to the same controls. Closing the window keeps LogiCam Tuner running
-there, so Smart Auto keeps working; quit from the menu-bar icon.
-
-Also: presets per camera (one can apply automatically whenever the camera connects) and Open at login.
 
 ## Smart Auto
 
@@ -109,35 +189,43 @@ Smart Auto never turns the camera on by itself: it runs only while another app i
 preview is open). Video is analysed in memory and never recorded or sent anywhere. When LogiCam Tuner
 quits, the camera's own automatics are switched back on; Smart Auto resumes at the next launch.
 
-## Install
+## Controls
 
-Requires macOS 14 or later and Swift 5.10+ (Xcode or the Command Line Tools).
+| Options+ name | LogiCam Tuner | UVC control |
+| --- | --- | --- |
+| Auto exposure | Exposure mode: Camera / Smart / Manual | exposure mode |
+| Shutter speed | Shutter speed (1/30 s …), in stops | exposure time |
+| ISO | ISO (gain) | gain |
+| Low light compensation | Low-light boost | auto-exposure priority |
+| HDR | HDR (backlight compensation) | backlight compensation |
+| White balance | Mode: Camera / Smart / Manual, temperature in kelvin | white balance |
+| Brightness, contrast, saturation, sharpness | same | processing unit |
+| Zoom, pan, tilt | same | camera terminal |
+| Focus | Autofocus, focus | camera terminal |
+| Anti-flicker | Anti-flicker (50/60 Hz) | power-line frequency |
 
-```sh
-./scripts/build-app.sh          # builds "build/LogiCam Tuner.app" (universal, ad-hoc signed)
-open "build/LogiCam Tuner.app"
-```
-
-Copy `build/LogiCam Tuner.app` to `/Applications` to keep it. Because the build is ad-hoc signed,
-another Mac will warn on first launch; right-click → Open. macOS asks for camera access the first
-time Smart Auto or the preview needs video.
+Controls are discovered from the camera's own descriptor, so only supported controls appear. Gamma,
+hue, roll (the StreamCam's portrait/landscape sensor) and others show up when a camera has them.
 
 ## CLI
 
+Installed with the app (Homebrew links it as `logicam`). From a source checkout, use
+`swift run logicam <command>` or the copy inside the built app.
+
 ```sh
-swift build -c release --product logicam
-LOGICAM=$(swift build -c release --show-bin-path)/logicam
-$LOGICAM list
-$LOGICAM describe
-$LOGICAM get
-$LOGICAM set brightness=140 white_balance_auto=off white_balance=4500
-$LOGICAM set exposure_mode=auto
-$LOGICAM preset save desk
-$LOGICAM preset apply desk
-$LOGICAM reset
-$LOGICAM auto                    # Smart Auto until Ctrl-C (turns the camera on)
-$LOGICAM auto exposure --bias -0.3 --min-fps 15
-$LOGICAM auto --watch            # print measurements only; change nothing
+logicam version
+logicam list
+logicam describe
+logicam get
+logicam set brightness=140 white_balance_auto=off white_balance=4500
+logicam set exposure_mode=auto
+logicam preset save desk
+logicam preset apply desk
+logicam reset
+logicam auto                    # Smart Auto until Ctrl-C (turns the camera on)
+logicam auto exposure --bias -0.3 --min-fps 15
+logicam auto --watch            # print measurements only; change nothing
+logicam who                     # which cameras are streaming, and the likely apps
 ```
 
 Use `--camera <index|serial>` when several cameras are attached and `--json` for scripting.
@@ -166,6 +254,7 @@ Use `--camera <index|serial>` when several cameras are attached and `--json` for
 | Camera | USB ID | Firmware | Result |
 | --- | --- | --- | --- |
 | Logitech StreamCam | 046d:0893 | 0x0317 | All 18 advertised standard controls and Smart Auto, macOS 27.0.1 |
+| MacBook Pro (M5) built-in camera | — | — | Preview and overlay, with shutter, ISO, colour temperature and light level from frame metadata, macOS 27 |
 
 Reports for other cameras are welcome: include `logicam list` and `logicam describe` output.
 
@@ -201,7 +290,13 @@ Each step started with a problem I hit with the StreamCam and ended with a fix i
    camera to 1080p at 30 fps a moment after WhatsApp starts.
 10. **"Auto" anti-flicker failed with an error.** The StreamCam only accepts 50 Hz and 60 Hz, so the app
     now offers only what the camera reports it supports.
-11. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
+11. **Calls on the MacBook's own camera showed nothing.** The app only knew USB cameras. It now
+    watches every camera, follows the one in use, and reads the built-in camera's exposure and colour
+    from the metadata its image pipeline attaches to every frame, since that camera has no controls.
+12. **The overlay wouldn't move, and was always full size.** Its SwiftUI text swallowed the clicks that
+    should drag the panel, so it now passes them through to a drag area. It can also be minimised to
+    one line, and the menu-bar panel shows the same stats for a quick look.
+13. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
     portrait stream to other apps needs a virtual camera. Research is in progress.
 
 ## Development
@@ -215,6 +310,12 @@ The checks run the exposure and white-balance controllers against simulated came
 (weak gain, exaggerated tone curve, flicker-safe shutter steps) was measured on a real StreamCam.
 
 `docs/logitech-options-plus.md` records how Logi Options+ communicates with the camera.
+
+## Versions
+
+LogiCam Tuner follows [Semantic Versioning](https://semver.org). Each release is tagged `vX.Y.Z`, listed in
+[CHANGELOG.md](CHANGELOG.md) and published on the [releases page](https://github.com/harsh-gulhane/logicam-tuner/releases).
+Check yours with `logicam version` or in the app's About window.
 
 ## Contributing
 

@@ -15,7 +15,7 @@ commands:
   preset apply <name>          apply a saved preset
   preset list                  list saved presets
   preset delete <name>         delete a preset
-  who                          show whether the camera is streaming and which app is likely using it
+  who                          show which cameras (including non-UVC ones) are streaming and the likely apps
   auto [features] [options]    run Smart Auto until interrupted (turns the camera on)
       features: exposure, white-balance (both when none given)
       --bias <ev>                exposure compensation, e.g. -0.5
@@ -27,12 +27,23 @@ commands:
       --watch                    only print measurements; change nothing
       --fps <n>                  frame rate to request when no other app is streaming (default 30)
 
+  version                      print the version
+
 options:
   --camera <index|serial>      choose a camera (default: first Logitech camera, else first camera)
   --json                       machine-readable output for list/get
 """
 
 struct CLIError: Error, CustomStringConvertible { let description: String }
+
+/// The version of the app bundle this binary ships in ("LogiCam Tuner.app/Contents/MacOS/logicam"),
+/// stamped from the VERSION file by the build script. Homebrew links the binary into its bin
+/// directory, so the symlink is resolved first; a plain `swift build` binary has no bundle.
+let appVersion: String = {
+    let executable = URL(fileURLWithPath: Bundle.main.executablePath ?? CommandLine.arguments[0]).resolvingSymlinksInPath()
+    let app = executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    return Bundle(url: app)?.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development build"
+}()
 
 var args = Array(CommandLine.arguments.dropFirst())
 func takeOption(_ name: String) -> String? {
@@ -199,9 +210,12 @@ func run() throws {
             throw CLIError(description: "unknown preset command \(sub)")
         }
     case "who":
-        let camera = try selectCamera()
-        let streaming = CameraFeed(camera.info)?.isStreamingSomewhere ?? false
-        print("\(camera.info.name): \(streaming ? "streaming" : "idle")")
+        let cameras = VideoCamera.list()
+        guard !cameras.isEmpty else { throw CLIError(description: "no cameras found") }
+        for camera in cameras {
+            print("\(camera.name)\(camera.uvc == nil ? "" : " (UVC)"): \(camera.isStreamingSomewhere ? "streaming" : "idle")")
+        }
+        let streaming = cameras.contains(where: \.isStreamingSomewhere)
         let capturing = CameraUsers.audioCapturingApps()
         print("apps capturing audio: " + (capturing.isEmpty ? "none" : capturing.map { $0.name }.joined(separator: ", ")))
         if streaming {
@@ -212,6 +226,8 @@ func run() throws {
         }
     case "auto":
         try runSmartAuto()
+    case "version", "--version", "-v":
+        print("logicam \(appVersion)")
     case "help", "-h", "--help":
         print(usage)
     default:
@@ -239,7 +255,9 @@ func runSmartAuto() throws {
     AVCaptureDevice.requestAccess(for: .video) { granted = $0; access.signal() }
     access.wait()
     guard granted else { throw CLIError(description: "camera access denied; allow it in System Settings → Privacy & Security → Camera") }
-    guard let feed = CameraFeed(camera.info) else { throw CLIError(description: "AVFoundation cannot open \(camera.info.name)") }
+    guard let video = VideoCamera.list().first(where: { $0.uvc == camera.info }), let feed = CameraFeed(video) else {
+        throw CLIError(description: "AVFoundation cannot open \(camera.info.name)")
+    }
 
     if let fps { feed.preferredFrameRate = fps }
     let smart = SmartAuto(camera: camera, feed: feed, io: DispatchQueue(label: "logicam.io"))

@@ -8,7 +8,7 @@ struct SessionsView: View {
         GroupBox("Recent camera use") {
             VStack(alignment: .leading, spacing: 6) {
                 if let live = monitor.live, let names = live.appNames {
-                    Label("Now: \(names)\(live.appsAreGuess ? "?" : "") · \(live.resolution) · \(Int(live.configuredFrameRate.rounded())) fps",
+                    Label("Now: \(names)\(live.appsAreGuess ? "?" : "") · \(live.camera.name) · \(live.resolution) · \(Int(live.configuredFrameRate.rounded())) fps",
                           systemImage: "record.circle").foregroundStyle(.green)
                 }
                 if monitor.sessions.isEmpty {
@@ -18,7 +18,7 @@ struct SessionsView: View {
                 ForEach(monitor.sessions.prefix(10)) { session in
                     VStack(alignment: .leading, spacing: 1) {
                         HStack {
-                            Text(session.app + (session.appIsGuess ? "?" : "")).fontWeight(.medium)
+                            Text(session.app + (session.appIsGuess && session.app != "Unknown app" ? "?" : "")).fontWeight(.medium)
                             Spacer()
                             Text(session.startedAt, format: .dateTime.day().month().hour().minute())
                                 .font(.caption).foregroundStyle(.secondary)
@@ -36,7 +36,7 @@ struct SessionsView: View {
     }
 
     private func summary(_ s: CameraSession) -> String {
-        var parts = ["\(s.resolution) · \(Int(s.configuredFrameRate.rounded())) fps"]
+        var parts = [s.camera, "\(s.resolution) · \(Int(s.configuredFrameRate.rounded())) fps"].compactMap { $0 }
         if let measured = s.averageMeasuredFrameRate { parts.append(String(format: "%.1f measured", measured)) }
         parts.append(s.pixelFormat)
         if let previous = s.upgradedFrom { parts.append("fixed from \(previous)") }

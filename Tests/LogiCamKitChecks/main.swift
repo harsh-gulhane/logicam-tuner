@@ -286,6 +286,35 @@ check(CameraUsers.outermostApp("/System/Applications/FaceTime.app") == "/System/
 check(CameraUsers.outermostApp("/usr/libexec/avconferenced") == nil, "a daemon has no app bundle")
 check(CameraUsers.daemonOwners["avconferenced"]?.name == "FaceTime", "FaceTime's conferencing daemon maps to FaceTime")
 
+// MARK: Frame metadata
+
+// Values as the MacBook Pro (M5) camera attached them under "MetadataDictionary".
+let reportedMetadata = FrameMetadata(["ExposureTime": NSNumber(value: 0.016664), "ISOSpeedRating": NSNumber(value: 349.29),
+                                      "CCT": NSNumber(value: 3103), "LuxLevel": NSNumber(value: 318), "AGC": NSNumber(value: 2048)])
+check(reportedMetadata == FrameMetadata(exposureTime: 0.016664, iso: 349.29, colorTemperature: 3103, lux: 318),
+      "Apple camera frame metadata")
+check(FrameMetadata(["AGC": NSNumber(value: 2048), "ExposureTime": NSNumber(value: -1)]) == nil, "no known or valid values")
+check(FrameMetadata(["CCT": "3100"]) == nil, "non-numeric values are ignored")
+check(ShutterSpeed.label(seconds: 0.016664) == "1/60 s" && ShutterSpeed.label(units: 333) == "1/30 s", "shutter labels")
+
+// MARK: Following the camera in use
+
+let streamCam = VideoCamera(id: "usb-1", name: "Logitech StreamCam", uvc: camA, isBuiltIn: false)
+let builtIn = VideoCamera(id: "mac", name: "MacBook Pro Camera", uvc: nil, isBuiltIn: true)
+let iPhone = VideoCamera(id: "phone", name: "iPhone Camera", uvc: nil, isBuiltIn: false)
+check(VideoCamera.follow(selected: streamCam, selectedInUse: false, busy: [builtIn], chosen: streamCam) == builtIn,
+      "a call on the Mac's camera is followed")
+check(VideoCamera.follow(selected: builtIn, selectedInUse: true, busy: [], chosen: streamCam) == nil, "stay while that call lasts")
+check(VideoCamera.follow(selected: builtIn, selectedInUse: false, busy: [], chosen: streamCam) == streamCam,
+      "back to the chosen camera after the call")
+check(VideoCamera.follow(selected: streamCam, selectedInUse: true, busy: [builtIn], chosen: streamCam) == nil,
+      "a StreamCam call keeps priority over another camera's")
+check(VideoCamera.follow(selected: builtIn, selectedInUse: true, busy: [streamCam], chosen: builtIn) == streamCam,
+      "a StreamCam call takes over from a camera without controls")
+check(VideoCamera.follow(selected: iPhone, selectedInUse: false, busy: [builtIn, streamCam], chosen: iPhone) == streamCam,
+      "UVC cameras first when several are in use")
+check(VideoCamera.follow(selected: streamCam, selectedInUse: false, busy: [], chosen: streamCam) == nil, "idle on the chosen camera")
+
 // MARK: Smart Auto settings
 
 let decoded = try JSONDecoder().decode(SmartAutoSettings.self, from: Data("{\"exposure\": true}".utf8))
