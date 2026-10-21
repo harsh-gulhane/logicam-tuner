@@ -9,7 +9,8 @@ PATCH for fixes. The version lives in the `VERSION` file.
 ### Changed
 - New original app icon and logo: a camera lens inside a tuning dial. The previous icon used an SF
   Symbol, which Apple's licence does not allow in app icons.
-- README: logo, highlights and install instructions at the top.
+- README: logo, highlights and install instructions at the top, and screenshots of the stream overlay
+  and the main window.
 
 ## [1.1.0] - 2026-10-18
 

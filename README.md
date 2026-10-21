@@ -41,6 +41,43 @@ brew install --cask harsh-gulhane/tap/logicam-tuner
 - **Camera on only when needed.** LogiCam Tuner never turns the camera light on by itself, and it comes
   with a `logicam` command-line tool.
 
+## Screenshots
+
+Both screenshots were taken with a MacBook's built-in camera, not a StreamCam. The StreamCam adds the
+full controls panel and Smart Auto to the window, and more rows to the overlay (focus, zoom, HDR,
+anti-flicker and low-light boost).
+
+### Stream overlay
+
+<p align="center">
+  <img src="docs/images/overlay.png" width="300" alt="The stream overlay: camera, resolution, frame rate, format, exposure, colour and light level">
+</p>
+
+A small panel that floats above your call app and never takes focus from it:
+
+- **Which app and which camera.** The app using the camera (found from the apps also using the
+  microphone), the camera's name, and how long the stream has run.
+- **The real stream.** Resolution and configured frame rate next to the frame rate actually measured,
+  plus the pixel format, so you can see what Meet, WhatsApp or FaceTime really get.
+- **What the camera chose.** Shutter speed, ISO, colour temperature and light level. A StreamCam also
+  shows its focus, zoom, HDR, anti-flicker and Smart Auto status.
+- **A fix you can see.** When LogiCam Tuner switches an app from a slow mode, such as WhatsApp's 5 fps,
+  to 1080p at 30 fps, a "Fixed" row shows what the mode was before.
+- **Out of the way.** Drag it anywhere (it remembers where), collapse it to one line with the chevron,
+  or hide it with the cross until the camera is next used. It follows you across Spaces and
+  full-screen apps. Choose when it appears under **Stream overlay**: Off, While an app uses the camera
+  or Always.
+
+### Main window
+
+<p align="center">
+  <img src="docs/images/main-window.png" width="800" alt="The main window: a large live preview beside the camera settings and recent camera use">
+</p>
+
+A large live preview with the stream's resolution and frame rate, beside the controls. The history
+lists each time an app used the camera with its resolution, frame rate and measured frame rate, so
+different apps can be compared. The face in the preview is blurred here.
+
 ## Install
 
 ### Homebrew (recommended)
