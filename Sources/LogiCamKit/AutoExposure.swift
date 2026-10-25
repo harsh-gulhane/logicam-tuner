@@ -15,17 +15,21 @@ public struct ExposureLimits: Equatable, Sendable {
     /// Ranges the camera reports.
     public var time: ClosedRange<Int>
     public var gain: ClosedRange<Int>
-    /// Longest exposure that keeps the current frame rate (longer when low-light boost is on).
+    /// Longest exposure that keeps the stream's frame rate.
+    public var frameTime: Int
+    /// Longest exposure allowed; longer than `frameTime` when low light may lower the frame rate.
     public var maxTime: Int
     /// Highest gain the user accepts; more gain means more noise.
     public var maxGain: Int
     /// Mains flicker period in exposure units (100 at 50 Hz, 83.3 at 60 Hz), nil when anti-flicker is off.
     public var flickerPeriod: Double?
 
-    public init(time: ClosedRange<Int>, gain: ClosedRange<Int>, maxTime: Int, maxGain: Int, flickerPeriod: Double?) {
+    public init(time: ClosedRange<Int>, gain: ClosedRange<Int>, frameTime: Int? = nil, maxTime: Int, maxGain: Int,
+                flickerPeriod: Double?) {
         self.time = time
         self.gain = gain
         self.maxTime = min(max(maxTime, time.lowerBound), time.upperBound)
+        self.frameTime = min(max(frameTime ?? maxTime, time.lowerBound), self.maxTime)
         self.maxGain = min(max(maxGain, gain.lowerBound), gain.upperBound)
         self.flickerPeriod = flickerPeriod
     }
@@ -33,6 +37,10 @@ public struct ExposureLimits: Equatable, Sendable {
     /// The camera does not report what its gain units mean; the controller assumes the full range is
     /// about +3 EV (8x). Feedback corrects any error, it only affects how quickly exposure converges.
     var gainUnit: Double { max(Double(gain.upperBound - gain.lowerBound), 1) / 8 }
+
+    /// Gain used at the stream's frame rate before frames get longer: half the allowed gain. Lowering
+    /// the frame rate first made every call in a dim room run at 15 fps, which looks choppy.
+    var gainBeforeLongerFrames: Int { gain.lowerBound + (maxGain - gain.lowerBound) / 2 }
 }
 
 /// Feedback auto-exposure that meters faces first and changes exposure only when the error is
@@ -41,12 +49,15 @@ public struct ExposureLimits: Equatable, Sendable {
 /// Differences from typical webcam firmware AE:
 /// - Face priority: a backlit face is exposed for the face, not the window behind it.
 /// - Hysteresis: corrections start at a 0.25 EV error and stop at 0.08 EV.
-/// - Prefers shutter time over gain, so the image stays as clean as the frame rate allows.
+/// - Prefers shutter time over gain, so the image stays as clean as the frame rate allows, and gain
+///   over a lower frame rate, so video stays smooth.
 /// - Snaps shutter time to whole mains periods so artificial light does not band.
 public struct ExposureController: Sendable {
     /// Exposure compensation in EV.
     public var bias: Double = 0
     public var facePriority = true
+    /// How much detected faces count, from 0 (scene only) to 1; see `FaceMetering`.
+    public var faceWeight = 1.0
     /// Linear luminance targets: about 44% and 51% sRGB grey respectively. The face target is kept
     /// moderate and blended with the scene, because skin reflectance varies widely between people.
     static let sceneTarget = 0.16
@@ -69,16 +80,12 @@ public struct ExposureController: Sendable {
     public func error(for stats: FrameStatistics) -> Double {
         func ev(_ target: Double, _ measured: Double) -> Double { log2(target / max(measured, 1e-4)) }
         let scene = ev(Self.sceneTarget, stats.sceneLuminance)
-        var error: Double
-        if facePriority, let face = stats.faceLuminance {
-            // Mostly the face, with some scene so the background is not thrown away entirely.
-            error = 0.65 * ev(Self.faceTarget, face) + 0.35 * scene
-        } else {
-            error = scene
-            // Without a face, hold back when a lot of the centre is blown out.
-            if stats.clippedFraction > 0.03 { error = min(error, 0) - min(1, (stats.clippedFraction - 0.03) * 8) }
-        }
-        return error + bias
+        // Without a face, hold back when a lot of the centre is blown out.
+        let sceneError = stats.clippedFraction > 0.03 ? min(scene, 0) - min(1, (stats.clippedFraction - 0.03) * 8) : scene
+        guard facePriority, faceWeight > 0, let face = stats.faceLuminance else { return sceneError + bias }
+        // Mostly the face, with some scene so the background is not thrown away entirely.
+        let faceError = 0.65 * ev(Self.faceTarget, face) + 0.35 * scene
+        return faceWeight * faceError + (1 - faceWeight) * sceneError + bias
     }
 
     /// Returns a new setting when exposure should change.
@@ -111,7 +118,12 @@ public struct ExposureController: Sendable {
 
     /// log2 of total exposure: shutter time times gain.
     static func ev(_ setting: ExposureSetting, _ limits: ExposureLimits) -> Double {
-        log2(Double(max(setting.time, 1))) + log2(1 + Double(max(setting.gain - limits.gain.lowerBound, 0)) / limits.gainUnit)
+        log2(Double(max(setting.time, 1))) + gainEV(setting.gain, limits)
+    }
+
+    /// log2 of the exposure a gain setting adds.
+    static func gainEV(_ gain: Int, _ limits: ExposureLimits) -> Double {
+        log2(1 + Double(max(gain - limits.gain.lowerBound, 0)) / limits.gainUnit)
     }
 
     /// The brightest setting the limits allow.
@@ -133,15 +145,68 @@ public struct ExposureController: Sendable {
         return ExposureSetting(time: time, gain: Int(gain.rounded()))
     }
 
-    /// Spends exposure on shutter time first, then gain.
+    /// Spends exposure on shutter time up to the stream's frame time, then on gain up to
+    /// `gainBeforeLongerFrames`, then on longer frames where allowed, and on the rest of the gain last.
     static func setting(forEV ev: Double, _ limits: ExposureLimits) -> ExposureSetting {
-        var time = min(pow(2, ev), Double(limits.maxTime))
-        if let period = limits.flickerPeriod, time >= period {
-            time = (time / period).rounded(.down) * period
+        var time = shutter(pow(2, ev), upTo: limits.frameTime, limits)
+        let moderateGain = gainEV(limits.gainBeforeLongerFrames, limits)
+        if limits.maxTime > limits.frameTime, ev - log2(time) > moderateGain {
+            time = max(time, shutter(pow(2, ev - moderateGain), upTo: limits.maxTime, limits))
         }
-        time = min(max(time.rounded(), Double(limits.time.lowerBound)), Double(limits.time.upperBound))
         let remaining = max(ev - log2(time), 0)
         let gain = Double(limits.gain.lowerBound) + limits.gainUnit * (pow(2, remaining) - 1)
         return ExposureSetting(time: Int(time), gain: Int(min(gain, Double(limits.maxGain)).rounded()))
+    }
+
+    /// The longest shutter time up to `wanted` and `cap`: whole mains periods with anti-flicker, within
+    /// the camera's range. Periods are matched to within one 100 µs unit, so two 60 Hz periods (16.67 ms)
+    /// fit a 60 fps frame of 166 units.
+    static func shutter(_ wanted: Double, upTo cap: Int, _ limits: ExposureLimits) -> Double {
+        var time = min(wanted, Double(cap))
+        if let period = limits.flickerPeriod, time + 1 >= period {
+            time = min(((time + 1) / period).rounded(.down) * period, Double(cap))
+        }
+        return min(max(time.rounded(), Double(limits.time.lowerBound)), Double(limits.time.upperBound))
+    }
+}
+
+/// Keeps face metering steady while face detection comes and goes.
+///
+/// Vision misses a face for a moment when it turns, looks down or is dimly lit. Switching between face
+/// and scene metering on every miss moved the exposure target by 0.3 EV or more, past the correction
+/// threshold, so each miss and each return caused a visible correction. A missed face is assumed to keep
+/// its last brightness relative to the scene for a few seconds and then fades out; a new face fades in,
+/// so a one-off false detection barely moves exposure.
+public struct FaceMetering: Sendable {
+    /// Seconds a missed face keeps its weight.
+    static let hold = 4.0
+    static let fadeIn = 1.0
+    static let fadeOut = 2.0
+
+    /// How much the face counts, from 0 (scene only) to 1.
+    public private(set) var weight = 0.0
+    private var lastSeen = -Double.infinity
+    private var lastUpdate: Double?
+    /// Face luminance over scene luminance when the face was last measured.
+    private var ratio: Double?
+
+    public init() {}
+
+    /// Returns `stats` with the face's luminance estimated while it is missed. `time` is in seconds.
+    public mutating func update(_ stats: FrameStatistics, at time: Double) -> FrameStatistics {
+        var stats = stats
+        // The first frame counts as a full fade, so metering starts on a face already in view.
+        let elapsed = lastUpdate.map { min(max(time - $0, 0), 1) } ?? Self.fadeIn
+        lastUpdate = time
+        if let face = stats.faceLuminance, stats.sceneLuminance > 0 {
+            lastSeen = time
+            ratio = face / stats.sceneLuminance
+            weight = min(weight + elapsed / Self.fadeIn, 1)
+        } else if time - lastSeen > Self.hold {
+            weight = max(weight - elapsed / Self.fadeOut, 0)
+            if weight == 0 { ratio = nil }
+        }
+        if stats.faceLuminance == nil, let ratio { stats.faceLuminance = stats.sceneLuminance * ratio }
+        return stats
     }
 }

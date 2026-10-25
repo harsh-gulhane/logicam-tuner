@@ -1,5 +1,6 @@
 import AVFoundation
 import CoreVideo
+import QuartzCore
 
 /// One capture session for a camera, shared by the live preview and Smart Auto.
 ///
@@ -23,18 +24,32 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         get { lock.withLock { _preferredFrameRate } }
         set { lock.withLock { _preferredFrameRate = newValue } }
     }
-    /// Frames per second actually delivered over the last second or so; 0 when not streaming.
-    public var measuredFrameRate: Double { lock.withLock { frameTimes.count > 1 ? Double(frameTimes.count - 1) / max(frameTimes.last! - frameTimes.first!, 1e-3) : 0 } }
+    /// Frames per second actually delivered over the last second; 0 when not streaming, when frames
+    /// have stopped, or just after starting, before there are enough frames to tell.
+    public var measuredFrameRate: Double {
+        let now = CACurrentMediaTime()
+        return lock.withLock { Self.frameRate(frameTimes, idle: now - lastFrameAt) }
+    }
     /// Exposure and colour the camera reported with a recent frame; nil for cameras that report none.
     public var metadata: FrameMetadata? { lock.withLock { _metadata } }
     private let lock = NSLock()
     private var _preferredFrameRate = 30.0
+    /// Presentation times of the last second's frames.
     private var frameTimes: [Double] = []
+    /// When (`CACurrentMediaTime`) the last frame arrived, or when streaming last started.
+    private var lastFrameAt = 0.0
     private var _metadata: FrameMetadata?
     private var metadataTime = -Double.infinity
     private let queue = DispatchQueue(label: "logicam.feed")
     private let output = AVCaptureVideoDataOutput()
     private var displayLayers: [AVSampleBufferDisplayLayer] = []
+    /// Whether `start()` was called more recently than `stop()`; on `queue`.
+    private var wantsRunning = false
+    /// Stall restarts since the last frame; each doubles the wait before the next. On `queue`.
+    private var stallRestarts = 0
+    /// Dropped frames by reason since they were last logged; on `queue`.
+    private var drops: [String: Int] = [:]
+    private var dropsLoggedAt = -Double.infinity
 
     public init?(_ camera: VideoCamera) {
         guard let device = camera.captureDevice(), let input = try? AVCaptureDeviceInput(device: device) else { return nil }
@@ -77,21 +92,45 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     /// (the camera's idle default can be a slow full-sensor mode).
     public func start() {
         queue.async { [self] in
-            guard !session.isRunning else { return }
-            let locked = (try? device.lockForConfiguration()) != nil
-            defer { if locked { device.unlockForConfiguration() } }
-            // Cameras such as the Mac's built-in one stop at 30 fps.
-            if locked, !isStreamingSomewhere, let (format, frameDuration) = Self.videoFormat(device, frameRate: preferredFrameRate)
-                ?? Self.videoFormat(device, frameRate: 30) {
-                device.activeFormat = format
-                device.activeVideoMinFrameDuration = frameDuration
-            }
-            session.beginConfiguration()
-            if session.inputs.isEmpty, session.canAddInput(input) { session.addInput(input) }
-            if session.outputs.isEmpty, session.canAddOutput(output) { session.addOutput(output) }
-            session.commitConfiguration()
-            session.startRunning()
-            if !session.isRunning { onLog?("capture session did not start") }
+            wantsRunning = true
+            stallRestarts = 0
+            startSession()
+        }
+    }
+
+    private func startSession() {
+        guard !session.isRunning else { return }
+        let locked = (try? device.lockForConfiguration()) != nil
+        defer { if locked { device.unlockForConfiguration() } }
+        // Cameras such as the Mac's built-in one stop at 30 fps.
+        if locked, !isStreamingSomewhere, let (format, frameDuration) = Self.videoFormat(device, frameRate: preferredFrameRate)
+            ?? Self.videoFormat(device, frameRate: 30) {
+            device.activeFormat = format
+            device.activeVideoMinFrameDuration = frameDuration
+        }
+        session.beginConfiguration()
+        if session.inputs.isEmpty, session.canAddInput(input) { session.addInput(input) }
+        if session.outputs.isEmpty, session.canAddOutput(output) { session.addOutput(output) }
+        session.commitConfiguration()
+        session.startRunning()
+        lock.withLock { lastFrameAt = CACurrentMediaTime() }
+        if !session.isRunning { onLog?("capture session did not start") }
+    }
+
+    /// Restarts streaming when the session stopped by itself (after a runtime error) or frames stopped
+    /// arriving, which otherwise left the preview frozen and Smart Auto idle until the stream was
+    /// reopened. Even the longest exposures deliver several frames a second. A camera that stays silent,
+    /// such as a built-in one with the lid closed, is retried less and less often. Call now and then.
+    public func restartIfStalled(after timeout: Double = 3) {
+        queue.async { [self] in
+            guard wantsRunning else { return }
+            let idle = CACurrentMediaTime() - lock.withLock { lastFrameAt }
+            guard idle > timeout * pow(2, Double(min(stallRestarts, 4))) else { return }
+            stallRestarts += 1
+            onLog?(session.isRunning ? String(format: "no frames for %.0f s, restarting capture", idle)
+                : "capture stopped by itself, restarting")
+            if session.isRunning { session.stopRunning() }
+            startSession()
         }
     }
 
@@ -159,6 +198,7 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
 
     public func stop() {
         queue.async { [self] in
+            wantsRunning = false
             if session.isRunning { session.stopRunning() }
             lock.withLock { frameTimes = []; _metadata = nil; metadataTime = -.infinity }
         }
@@ -173,12 +213,23 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
         lock.withLock { displayLayers.removeAll { $0 === layer } }
     }
 
+    /// Frames per second from the presentation times of the last second's frames, or 0 when fewer than
+    /// three frames span 0.4 s or no frame arrived for `idle` > 1 s, so a stalled stream reads 0 rather
+    /// than its old rate. Presentation times give the camera's own cadence; arrival times are bunched
+    /// while the app is in the background.
+    static func frameRate(_ times: [Double], idle: Double) -> Double {
+        guard idle <= 1, times.count >= 3, let first = times.first, let last = times.last, last - first >= 0.4 else { return 0 }
+        return Double(times.count - 1) / (last - first)
+    }
+
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                               from connection: AVCaptureConnection) {
         let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        let arrived = CACurrentMediaTime()
         let (layers, readMetadata) = lock.withLock { () -> ([AVSampleBufferDisplayLayer], Bool) in
             frameTimes.append(time)
             frameTimes.removeAll { $0 < time - 1 }
+            lastFrameAt = arrived
             return (displayLayers, time - metadataTime >= 0.25)
         }
         if readMetadata {
@@ -198,7 +249,22 @@ public final class CameraFeed: NSObject, AVCaptureVideoDataOutputSampleBufferDel
                 layer.enqueue(sampleBuffer)
             }
         }
+        stallRestarts = 0
         guard let onFrame, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         onFrame(buffer)
+    }
+
+    /// Logs dropped frames with AVFoundation's reason (late, out of buffers, discontinuity), at most
+    /// every 10 s, so stutter shows up in the diagnostics log.
+    public func captureOutput(_ output: AVCaptureOutput, didDrop sampleBuffer: CMSampleBuffer,
+                              from connection: AVCaptureConnection) {
+        let reason = CMGetAttachment(sampleBuffer, key: kCMSampleBufferAttachmentKey_DroppedFrameReason,
+                                     attachmentModeOut: nil) as? String
+        drops[reason ?? "unknown reason", default: 0] += 1
+        let now = CACurrentMediaTime()
+        guard now - dropsLoggedAt >= 10 else { return }
+        dropsLoggedAt = now
+        onLog?("dropped frames: " + drops.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", "))
+        drops = [:]
     }
 }

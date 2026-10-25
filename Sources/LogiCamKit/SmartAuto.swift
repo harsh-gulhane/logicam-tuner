@@ -12,9 +12,9 @@ public struct SmartAutoSettings: Codable, Equatable, Sendable {
     public var facePriority = true
     /// Highest gain Smart Auto may use, as a share of the camera's range.
     public var maxGain = 1.0
-    /// In low light, shutter time may grow until video drops to this frame rate. Lower is brighter
-    /// and less noisy, but less smooth. 0 (or any value at or above the stream's rate) keeps the
-    /// stream's frame rate.
+    /// In low light, once gain reaches half of `maxGain`, shutter time may grow until video drops to
+    /// this frame rate. Lower is brighter and less noisy, but less smooth. 0 (or any value at or above
+    /// the stream's rate) keeps the stream's frame rate.
     public var minimumFrameRate = 15.0
     /// -1 (cooler) ... 1 (warmer).
     public var warmth = 0.0
@@ -45,6 +45,7 @@ public struct SmartAutoSettings: Codable, Equatable, Sendable {
 public struct SmartAutoStatus: Equatable, Sendable {
     public var exposure: ExposureSetting?
     public var whiteBalance: Int?
+    /// Exposure is metering a face, including one face detection missed a moment ago.
     public var faceDetected = false
     public var adjusting = false
     /// Exposure is at its brightest allowed setting and the picture is still too dark.
@@ -70,12 +71,15 @@ public final class SmartAuto: @unchecked Sendable {
     /// Serializes the controller state below between frame callbacks and camera refreshes.
     private let state = DispatchQueue(label: "logicam.smartauto")
     private var exposureController = ExposureController()
+    private var faceMetering = FaceMetering()
     private var whiteBalanceController = WhiteBalanceController()
     private var limits: CameraLimits?
     private var exposure: ExposureSetting?
     private var kelvin: Int?
-    private var nextAnalysis = 0.0, nextFaceDetection = 0.0, lastFaceSeen = -10.0, nextStatus = 0.0
-    private var exposureReadyAt = 0.0, whiteBalanceReadyAt = 0.0
+    private var nextAnalysis = 0.0, nextFaceDetection = 0.0, nextStatus = 0.0
+    /// Writes queued on `io` that the camera has not received yet, and when the last one arrived.
+    private var writesInFlight = 0
+    private var lastWriteLanded = 0.0
     private var faces: [CGRect] = []
     private var status = SmartAutoStatus()
 
@@ -141,8 +145,6 @@ public final class SmartAuto: @unchecked Sendable {
                 self.exposure = limits.time.map { ExposureSetting(time: $0.current, gain: limits.gain?.current ?? 0) }
                 self.kelvin = limits.whiteBalance?.current
                 self.status.problem = problem
-                self.exposureReadyAt = 0
-                self.whiteBalanceReadyAt = 0
             }
         }
     }
@@ -176,54 +178,53 @@ public final class SmartAuto: @unchecked Sendable {
 
         if now >= nextFaceDetection {
             nextFaceDetection = now + 0.5
-            let detected = Self.detectFaces(buffer)
-            if !detected.isEmpty { faces = detected; lastFaceSeen = now }
+            faces = Self.detectFaces(buffer)
         }
-        // Keep the last faces briefly so a missed detection does not jump exposure.
-        if now - lastFaceSeen > 1.5 { faces = [] }
 
-        guard let stats = FrameAnalyzer.analyze(buffer, faces: settings.facePriority ? faces : [],
+        guard var stats = FrameAnalyzer.analyze(buffer, faces: settings.facePriority ? faces : [],
                                                 searchCenter: whiteBalanceController.searchCenter) else { return }
         onStatistics?(stats)
-        // Exposure changes take a few frames to reach the output.
-        let settle = max(0.3, 4 * feed.frameDuration)
+        // A face detection missed for a moment keeps the face in the metering.
+        stats = faceMetering.update(stats, at: now)
+        exposureController.faceWeight = faceMetering.weight
+        let settle = Self.settleTime(frameDuration: feed.frameDuration, measuredFrameRate: feed.measuredFrameRate,
+                                     exposureTime: settings.exposure ? exposure.map { Double($0.time) / 10_000 } : nil)
         var adjusting = false, needsMoreLight = false
 
-        if settings.exposure, status.problem == nil, let time = limits.time, let current = exposure, now >= exposureReadyAt,
-           let lo = time.minimum, let hi = time.maximum {
+        if settings.exposure, status.problem == nil, let time = limits.time, let current = exposure,
+           writesInFlight == 0, now - lastWriteLanded >= settle, let lo = time.minimum, let hi = time.maximum {
             let gain = limits.gain
             let gainRange = (gain?.minimum ?? 0)...(gain?.maximum ?? 0)
             let frameUnits = Int(feed.frameDuration * 10_000)
             let exposureLimits = ExposureLimits(
-                time: lo...hi, gain: gainRange,
+                time: lo...hi, gain: gainRange, frameTime: frameUnits,
                 maxTime: limits.framesMayLengthen && settings.minimumFrameRate > 0
                     ? max(frameUnits, Int(10_000 / settings.minimumFrameRate)) : frameUnits,
                 maxGain: gainRange.lowerBound + Int(Double(gainRange.upperBound - gainRange.lowerBound) * settings.maxGain),
                 flickerPeriod: limits.flickerPeriod)
             if let next = exposureController.update(stats, current: current, limits: exposureLimits) {
-                write(time.control, next.time, previous: current.time)
-                if let gain { write(gain.control, next.gain, previous: current.gain) }
+                write([(time.control, next.time, current.time)] + (gain.map { [($0.control, next.gain, current.gain)] } ?? []))
                 exposure = next
-                exposureReadyAt = now + settle
             }
             adjusting = adjusting || exposureController.isCorrecting
             needsMoreLight = exposureController.lastError > ExposureController.stopThreshold
                 && exposure == ExposureController.brightest(exposureLimits)
         }
 
+        // White balance also waits for an exposure change made just above, so it never measures a frame
+        // halfway through one.
         if settings.whiteBalance, status.problem == nil, let wb = limits.whiteBalance, let current = kelvin,
-           now >= whiteBalanceReadyAt, let lo = wb.minimum, let hi = wb.maximum {
+           writesInFlight == 0, now - lastWriteLanded >= max(settle, 0.4), let lo = wb.minimum, let hi = wb.maximum {
             if let next = whiteBalanceController.update(stats, currentKelvin: current, range: lo...hi) {
-                write(wb.control, next, previous: current)
+                write([(wb.control, next, current)])
                 kelvin = next
-                whiteBalanceReadyAt = now + max(settle, 0.4)
             }
             adjusting = adjusting || whiteBalanceController.isCorrecting
         }
 
         status.exposure = settings.exposure ? exposure : nil
         status.whiteBalance = settings.whiteBalance ? kelvin : nil
-        status.faceDetected = !faces.isEmpty
+        status.faceDetected = settings.facePriority && faceMetering.weight > 0
         status.adjusting = adjusting && !needsMoreLight
         status.needsMoreLight = needsMoreLight
         if now >= nextStatus {
@@ -233,9 +234,29 @@ public final class SmartAuto: @unchecked Sendable {
         }
     }
 
-    private func write(_ control: CameraControl, _ value: Int, previous: Int) {
-        guard value != previous else { return }
-        io.async { [camera] in try? camera.setCurrent(control, value: value) }
+    /// Sends the changed values in one I/O turn, so other camera requests on `io` cannot land between
+    /// shutter and gain, and notes when the camera has them: settling is timed from then, not from
+    /// when the change was decided, since `io` may be busy with other requests.
+    private func write(_ changes: [(control: CameraControl, value: Int, previous: Int)]) {
+        let changed = changes.filter { $0.value != $0.previous }
+        guard !changed.isEmpty else { return }
+        writesInFlight += 1
+        io.async { [self] in
+            for change in changed { try? camera.setCurrent(change.control, value: change.value) }
+            let landed = CACurrentMediaTime()
+            state.async { [self] in
+                writesInFlight -= 1
+                lastWriteLanded = landed
+            }
+        }
+    }
+
+    /// How long a change takes to show in the analysed frames once the camera has it: four frames, at
+    /// least 0.3 s. Long exposures make frames longer than the configured rate, so frames are timed by
+    /// the slowest of the configured duration, the measured interval and the exposure time.
+    static func settleTime(frameDuration: Double, measuredFrameRate: Double, exposureTime: Double?) -> Double {
+        let frame = max(frameDuration, measuredFrameRate > 0 ? 1 / measuredFrameRate : 0, exposureTime ?? 0)
+        return max(0.3, 4 * frame)
     }
 
     static func detectFaces(_ buffer: CVPixelBuffer) -> [CGRect] {

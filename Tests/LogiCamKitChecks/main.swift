@@ -185,6 +185,74 @@ check(abs(faceMeter.error(for: FrameStatistics(sceneLuminance: 0.16, faceLuminan
                                                 neutralCast: nil, neutralFraction: 0, averageCast: .neutral)) - 1) < 1e-9,
       "exposure compensation shifts the target")
 
+// MARK: Low light keeps the frame rate first
+
+// Lowering the frame rate before using any gain made every call in a dim room run at 15 fps.
+let slowing = ExposureLimits(time: 3...2047, gain: 0...255, frameTime: 333, maxTime: 666, maxGain: 255, flickerPeriod: 100)
+let twiceDarker = ExposureController.setting(forEV: log2(333) + 1, slowing)
+check(twiceDarker.time <= 333 && twiceDarker.gain > 0, "moderate low light keeps the frame rate and uses gain (\(twiceDarker))")
+let muchDarker = ExposureController.setting(forEV: log2(333) + 4, slowing)
+check(muchDarker.time > 333 && muchDarker.time <= 666 && muchDarker.time % 100 == 0,
+      "deep low light lengthens frames in whole mains periods (\(muchDarker))")
+check(ExposureController.brightest(slowing) == ExposureSetting(time: 600, gain: 255), "brightest setting with longer frames")
+let sixty = ExposureLimits(time: 3...2047, gain: 0...255, frameTime: 166, maxTime: 166, maxGain: 255, flickerPeriod: 10_000.0 / 120)
+check(ExposureController.setting(forEV: log2(166), sixty) == ExposureSetting(time: 166, gain: 0),
+      "two 60 Hz mains periods fit a 60 fps frame despite 100 µs units")
+
+// MARK: Face metering while face detection comes and goes
+
+/// Exposure corrections in the minute after settling, against the simulated camera with a face 1.3 EV
+/// darker than the scene. Frames are analysed every 0.2 s, and each change reaches them 0.3 s after it
+/// is made, then the controller waits 0.3 s, as Smart Auto does.
+func faceCorrections(visible: (Double) -> Bool) -> Int {
+    var controller = ExposureController()
+    var metering = FaceMetering()
+    let dimLight = pow(ExposureController.sceneTarget, 1 / 1.8) / 300
+    var shown = ExposureSetting(time: 333, gain: 0), setting = shown
+    var pending: [(at: Double, setting: ExposureSetting)] = []
+    var readyAt = 0.0, corrections = 0
+    for tick in 0..<350 {
+        let t = Double(tick) * 0.2
+        while let first = pending.first, first.at <= t { shown = first.setting; pending.removeFirst() }
+        var stats = simulatedScene(shown, light: dimLight)
+        if visible(t) { stats.faceLuminance = stats.sceneLuminance * 0.4 }
+        stats = metering.update(stats, at: t)
+        controller.faceWeight = metering.weight
+        guard t >= readyAt, let next = controller.update(stats, current: setting, limits: slowing) else { continue }
+        pending.append((t + 0.3, next))
+        setting = next
+        readyAt = t + 0.6
+        if t >= 10 { corrections += 1 }
+    }
+    return corrections
+}
+check(faceCorrections { _ in true } == 0, "a steadily detected face keeps exposure still")
+// Seen for 4 s, then missed for 2.5 s, repeating: switching metering on each miss made 48 corrections a minute.
+let flaky = faceCorrections { $0.truncatingRemainder(dividingBy: 6.5) < 4 }
+check(flaky == 0, "a face missed now and then does not move exposure (\(flaky) corrections in a minute)")
+
+var leaving = FaceMetering()
+var withFace = onTarget
+withFace.faceLuminance = 0.05
+for tick in 0...5 { _ = leaving.update(withFace, at: Double(tick) * 0.2) }
+var missed = onTarget
+for tick in 6...20 { missed = leaving.update(onTarget, at: Double(tick) * 0.2) }
+check(leaving.weight == 1 && missed.faceLuminance.map { abs($0 - 0.05) < 1e-9 } == true,
+      "a face missed for 3 s keeps its weight and last brightness")
+for tick in 21...40 { missed = leaving.update(onTarget, at: Double(tick) * 0.2) }
+check(leaving.weight == 0 && missed.faceLuminance == nil, "a face that has left fades out of the metering")
+
+check(abs(SmartAuto.settleTime(frameDuration: 1.0 / 30, measuredFrameRate: 8, exposureTime: 0.06) - 0.5) < 1e-9,
+      "Smart Auto waits four of the frames the camera really delivers, not the configured ones")
+check(SmartAuto.settleTime(frameDuration: 1.0 / 60, measuredFrameRate: 60, exposureTime: 0.01) == 0.3, "settling takes at least 0.3 s")
+
+// MARK: Measured frame rate
+
+let frameTimes = (0..<30).map { Double($0) / 30 }
+check(abs(CameraFeed.frameRate(frameTimes, idle: 0.03) - 30) < 0.01, "frame rate from presentation times")
+check(CameraFeed.frameRate(frameTimes, idle: 1.5) == 0, "a stalled stream reads 0 fps, not its old rate")
+check(CameraFeed.frameRate(Array(frameTimes.prefix(3)), idle: 0.03) == 0, "too few frames just after starting read 0 fps")
+
 // MARK: White balance feedback against a simulated camera
 
 /// Neutral surfaces render warm when the camera's temperature is above the light's (3400 K here).

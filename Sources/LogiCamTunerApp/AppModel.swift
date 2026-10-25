@@ -250,6 +250,7 @@ final class AppModel: ObservableObject {
     }
 
     private func pollUsage() {
+        feed?.restartIfStalled()
         updateStreamInfo()
         liveMonitor.update(feed: feed, camera: camera, active: cameraInUse || previewVisible, otherApp: cameraInUse, io: io)
         fixSlowModeIfNeeded()
@@ -280,11 +281,12 @@ final class AppModel: ObservableObject {
             let released = !feed.isStreamingInThisProcess
             guard released || Date() >= deadline else { return self.finishProbe(feed, deadline: deadline) }
             let elsewhere = released && feed.isStreamingSomewhere
-            Diagnostics.note("probe: released \(released), another app streaming \(elsewhere)")
+            // A probe that finds the call still running is routine; logging each one buried the rest of the log.
+            if !elsewhere { Diagnostics.note("probe: released \(released), another app streaming false") }
             self.probing = false
             self.nextProbe = Date() + Self.probeInterval
             self.setCameraInUse(elsewhere)
-            self.updateFeed()
+            self.updateFeed(logging: false)
         }
     }
 
@@ -331,17 +333,17 @@ final class AppModel: ObservableObject {
 
     /// Streams only while the preview is open, or another app is streaming and Smart Auto or the
     /// overlay (for the measured frame rate) needs frames, so LogiCam Tuner never turns the camera light on by itself.
-    private func updateFeed() {
+    private func updateFeed(logging: Bool = true) {
         guard let feed else { return }
         let wanted = previewVisible || ((smart.isEnabled || overlayMode != .off) && cameraInUse)
         guard wanted else {
-            if feed.isRunning { Diagnostics.note("stopping capture: preview \(previewVisible), in use \(cameraInUse)") }
+            if logging, feed.isRunning { Diagnostics.note("stopping capture: preview \(previewVisible), in use \(cameraInUse)") }
             feed.stop()
             return
         }
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            if !feed.isRunning { Diagnostics.note("starting capture: preview \(previewVisible), in use \(cameraInUse)") }
+            if logging, !feed.isRunning { Diagnostics.note("starting capture: preview \(previewVisible), in use \(cameraInUse)") }
             feed.start()
         case .notDetermined:
             // The answer can take a while (macOS may show a prompt); decide again once it arrives,
