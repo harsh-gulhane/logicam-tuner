@@ -11,6 +11,22 @@ PATCH for fixes. The version lives in the `VERSION` file.
   Symbol, which Apple's licence does not allow in app icons.
 - README: logo, highlights and install instructions at the top, and screenshots of the stream overlay
   and the main window.
+- The diagnostics log records dropped frames and stalled streams, and no longer records each routine
+  check that a call is still using the camera.
+
+### Fixed
+- Smart Auto keeps the stream's frame rate in low light: it raises ISO to half of Max ISO before it
+  lengthens frames. Calls in a dim room ran at about 15 fps.
+- Smart Auto exposure no longer corrects back and forth when face detection misses a face for a moment:
+  a missed face keeps counting for 4 seconds, then fades out.
+- Smart Auto measures again only once its change has reached the camera and four of the frames the
+  camera really delivers have passed, and white balance waits for exposure changes. Shutter and gain
+  are sent together.
+- With 60 Hz anti-flicker at 60 fps, Smart Auto can use a 1/60 s shutter; it used 1/120 s plus gain.
+- A capture session that stops, or stops delivering frames, restarts after 3 seconds instead of leaving
+  the preview frozen and Smart Auto idle.
+- The measured frame rate reads 0 when frames stop instead of keeping the last rate, and waits for
+  enough frames after starting.
 
 ## [1.1.0] - 2026-10-18
 

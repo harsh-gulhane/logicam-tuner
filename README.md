@@ -206,20 +206,22 @@ using the camera, LogiCam Tuner looks at a small copy of the video on your Mac a
 manual controls itself:
 
 - **Faces first.** Exposure meters detected faces, blended with the scene, so a bright window behind
-  you no longer leaves your face dark.
+  you no longer leaves your face dark. A face that detection misses for a moment, turning away or
+  looking down, keeps counting for a few seconds, so exposure does not jump.
 - **No breathing.** Exposure only starts correcting at a clearly visible error (0.25 EV) and stops close
   to target; white balance has the same kind of hysteresis. The picture settles and stays put.
 - **White balance from neutral surfaces.** Only near-grey, well-exposed pixels outside faces count, so a
   coloured shirt or wall does not pull the colour. With too few neutral pixels, it holds the current
   setting instead of guessing.
-- **Clean and flicker-free.** Shutter time is spent before gain, and snapped to whole mains periods
-  so lights do not band. You choose whether low light may lower the frame rate (keep it, or down to 30, 15 or 7.5 fps)
-  and the highest ISO.
+- **Smooth, clean and flicker-free.** Shutter time is spent first, up to what the frame rate allows,
+  then ISO. Only once ISO reaches half your limit may low light lower the frame rate, as far as you
+  allow (keep it, or down to 30, 15 or 7.5 fps). Shutter times are snapped to whole mains periods so
+  lights do not band. You also choose the highest ISO.
 - **Your taste.** Exposure compensation (±2 EV) and a warmth slider.
 
 On a StreamCam in a dim room, the camera's own auto exposure chose 1/25 s at full gain and its auto
-white balance left whites amber (5230 K) and drifted for seconds. Smart Auto settled at 1/17 s,
-which keeps 15 fps, and neutral whites at about 3400 K within roughly two seconds. Measured with
+white balance left whites amber (5230 K) and drifted for seconds. Smart Auto settled on neutral
+whites at about 3400 K within roughly two seconds. Measured with
 `logicam auto --watch` on one camera and one room; your results will differ.
 
 Smart Auto never turns the camera on by itself: it runs only while another app is streaming (or the
@@ -281,7 +283,8 @@ Use `--camera <index|serial>` when several cameras are attached and `--json` for
   protocol is not public. LogiCam Tuner lists those units but does not drive them. On the StreamCam, Options+
   offers no other image controls.
 - **Diagnostics.** `~/Library/Logs/LogiCamTuner.log` (also `log stream --predicate 'subsystem == "io.github.logicamtuner"'`)
-  records when capture starts and stops, each stream's format and measured frame rate, and session summaries.
+  records when capture starts and stops, each stream's format and measured frame rate, dropped frames,
+  restarts after a stalled stream, and session summaries.
 - **Preview in the background.** The preview pauses while LogiCam Tuner is not the active app: the call app
   shows its own picture, and LogiCam Tuner can only tell which other apps use the camera while it is not
   streaming itself.
@@ -333,7 +336,13 @@ Each step started with a problem I hit with the StreamCam and ended with a fix i
 12. **The overlay wouldn't move, and was always full size.** Its SwiftUI text swallowed the clicks that
     should drag the panel, so it now passes them through to a drag area. It can also be minimised to
     one line, and the menu-bar panel shows the same stats for a quick look.
-13. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
+13. **Calls ran at 15 fps, and exposure kept correcting itself.** The session history showed every
+    StreamCam call averaging about 15.8 fps: in a dim room, Smart Auto lengthened frames before using
+    any ISO. It now raises ISO first and lowers the frame rate only as a last resort. Exposure also
+    jumped whenever face detection missed a turning face for a moment, since metering switched between
+    face and scene; a missed face now keeps counting for a few seconds. A stalled stream is restarted,
+    and dropped frames are logged.
+14. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
     portrait stream to other apps needs a virtual camera. Research is in progress.
 
 ## Development

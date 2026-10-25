@@ -41,6 +41,7 @@ struct ControlsPanel: View {
                 Text("Down to 15 fps").tag(15.0)
                 Text("Down to 7.5 fps").tag(7.5)
             }
+            .help("Video keeps its frame rate until ISO reaches half of Max ISO; only then may frames get longer, down to this rate.")
             PreferenceSlider(title: "Max ISO", value: model.smart.maxGain, range: 0.25...1, step: 0.05,
                              format: { String(format: "%.0f%%", $0 * 100) }) { v in model.updateSmart { $0.maxGain = v } }
         }
