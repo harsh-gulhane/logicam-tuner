@@ -21,6 +21,8 @@ struct LiveStream: Equatable {
     var everUsedBy: [String] = []
     /// Measured frame rates, for the session summary.
     var frameRateSamples: [Double] = []
+    /// The stream was written to the diagnostics log.
+    var logged = false
 
     static let polledControls = ["exposure_mode", "exposure_time", "gain", "white_balance_auto", "white_balance",
                                  "focus_auto", "focus", "zoom", "backlight_compensation", "power_line_frequency",
@@ -126,16 +128,20 @@ final class LiveMonitor: ObservableObject {
         next.pixelFormat = feed.pixelFormat
         next.metadata = feed.metadata
         let fps = feed.isRunning ? feed.measuredFrameRate : 0
-        if fps > 0 {
-            if next.measuredFrameRate == nil {
-                let reported = next.metadata.map { m in
-                    [m.exposureTime.map(ShutterSpeed.label(seconds:)), m.iso.map { String(format: "ISO %.0f", $0) },
-                     m.colorTemperature.map { "\($0) K" }, m.lux.map { "\($0) lux" }].compactMap { $0 }.joined(separator: " ")
-                }
-                Diagnostics.note("stream: \(next.appNames ?? "unknown app") on \(next.camera.name), \(next.resolution) \(next.pixelFormat), "
-                                 + String(format: "%.0f fps configured, %.1f measured", next.configuredFrameRate, fps)
-                                 + (reported.map { ", camera reports \($0)" } ?? ""))
+        // Logged once, with the measured rate when LogiCam Tuner streams too; otherwise after a few
+        // seconds, when call apps have usually opened the microphone and can be named.
+        if !next.logged, fps > 0 || ticks >= 3 {
+            next.logged = true
+            let reported = next.metadata.map { m in
+                [m.exposureTime.map(ShutterSpeed.label(seconds:)), m.iso.map { String(format: "ISO %.0f", $0) },
+                 m.colorTemperature.map { "\($0) K" }, m.lux.map { "\($0) lux" }].compactMap { $0 }.joined(separator: " ")
             }
+            Diagnostics.note("stream: \(next.appNames ?? "unknown app") on \(next.camera.name), \(next.resolution) \(next.pixelFormat), "
+                             + String(format: "%.0f fps configured", next.configuredFrameRate)
+                             + (fps > 0 ? String(format: ", %.1f measured", fps) : ", not measured")
+                             + (reported.map { ", camera reports \($0)" } ?? ""))
+        }
+        if fps > 0 {
             next.measuredFrameRate = fps
             next.frameRateSamples = Array((next.frameRateSamples + [fps]).suffix(3600))
         }
