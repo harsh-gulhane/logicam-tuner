@@ -154,11 +154,12 @@ let light = pow(ExposureController.sceneTarget, 1 / 1.8) / 166
 let (settled, changes) = runExposure(light: light, from: ExposureSetting(time: 10, gain: 0), steps: 40)
 let settledError = ExposureController().error(for: simulatedScene(settled, light: light))
 check(abs(settledError) < ExposureController.startThreshold, "exposure converges from far too dark (error \(settledError))")
-check((changes.last ?? 0) < 15, "exposure settles within 15 analysed frames (last change at \(changes.last ?? -1))")
+// Each correction waits for two analysed frames of the new exposure.
+check((changes.last ?? 0) < 20, "exposure settles within 20 analysed frames (last change at \(changes.last ?? -1))")
 // The target (about 166 units) falls between two flicker-safe shutter times; this used to cycle.
 let (fromBright, brightChanges) = runExposure(light: light, from: ExposureSetting(time: 2047, gain: 255), steps: 40)
 check(abs(ExposureController().error(for: simulatedScene(fromBright, light: light))) < ExposureController.startThreshold
-      && (brightChanges.last ?? 0) < 15, "exposure converges from far too bright without cycling")
+      && (brightChanges.last ?? 0) < 20, "exposure converges from far too bright without cycling")
 // A manual shutter from before Smart Auto, beyond the frame-rate limit, is replaced even for a small correction.
 var inherited = ExposureController()
 let slow = ExposureSetting(time: 2047, gain: 48)
@@ -201,10 +202,11 @@ check(ExposureController.setting(forEV: log2(166), sixty) == ExposureSetting(tim
 
 // MARK: Face metering while face detection comes and goes
 
-/// Exposure corrections in the minute after settling, against the simulated camera with a face 1.3 EV
-/// darker than the scene. Frames are analysed every 0.2 s, and each change reaches them 0.3 s after it
-/// is made, then the controller waits 0.3 s, as Smart Auto does.
-func faceCorrections(visible: (Double) -> Bool) -> Int {
+/// Exposure corrections in the minute after settling, against the simulated camera with a face whose
+/// brightness relative to the scene `face` gives at each time (nil while detection misses it). Frames are
+/// analysed every 0.2 s and faces detected on every third, and each change reaches them 0.3 s after it is
+/// made, then the controller waits 0.3 s, as Smart Auto does.
+func faceCorrections(face: (Double) -> Double?) -> Int {
     var controller = ExposureController()
     var metering = FaceMetering()
     let dimLight = pow(ExposureController.sceneTarget, 1 / 1.8) / 300
@@ -215,8 +217,9 @@ func faceCorrections(visible: (Double) -> Bool) -> Int {
         let t = Double(tick) * 0.2
         while let first = pending.first, first.at <= t { shown = first.setting; pending.removeFirst() }
         var stats = simulatedScene(shown, light: dimLight)
-        if visible(t) { stats.faceLuminance = stats.sceneLuminance * 0.4 }
-        stats = metering.update(stats, at: t)
+        let detected = tick % 3 == 0
+        if detected, let ratio = face(t) { stats.faceLuminance = stats.sceneLuminance * ratio }
+        stats = metering.update(stats, detected: detected, at: t)
         controller.faceWeight = metering.weight
         guard t >= readyAt, let next = controller.update(stats, current: setting, limits: slowing) else { continue }
         pending.append((t + 0.3, next))
@@ -226,20 +229,85 @@ func faceCorrections(visible: (Double) -> Bool) -> Int {
     }
     return corrections
 }
-check(faceCorrections { _ in true } == 0, "a steadily detected face keeps exposure still")
+// A face 1.3 EV darker than the scene.
+check(faceCorrections { _ in 0.4 } == 0, "a steadily detected face keeps exposure still")
 // Seen for 4 s, then missed for 2.5 s, repeating: switching metering on each miss made 48 corrections a minute.
-let flaky = faceCorrections { $0.truncatingRemainder(dividingBy: 6.5) < 4 }
+let flaky = faceCorrections { $0.truncatingRemainder(dividingBy: 6.5) < 4 ? 0.4 : nil }
 check(flaky == 0, "a face missed now and then does not move exposure (\(flaky) corrections in a minute)")
+// Looking down at notes for 6 s at a time.
+let lookingDown = faceCorrections { $0.truncatingRemainder(dividingBy: 10) < 4 ? 0.4 : nil }
+check(lookingDown == 0, "a face missed for several seconds at a time does not move exposure (\(lookingDown) corrections in a minute)")
+// Beside a window, the face reading jumped 0.6 EV for a frame or two whenever the head turned or the
+// face box jittered; reacting to those made a StreamCam correct 25 times in 90 s.
+let jittery = faceCorrections { $0.truncatingRemainder(dividingBy: 3) < 0.4 ? 0.4 * pow(2, 0.6) : 0.4 }
+check(jittery == 0, "a face reading that jumps for a moment does not move exposure (\(jittery) corrections in a minute)")
+
+/// Corrections until exposure settles on a camera whose brightness moves `response` times as far as the
+/// controller's model predicts, starting 1 measured EV too dark, and how often the error changed sign.
+func corrections(response: Double) -> (count: Int, overshoots: Int) {
+    var controller = ExposureController()
+    let target = ExposureSetting(time: 300, gain: 120)
+    func stats(_ s: ExposureSetting) -> FrameStatistics {
+        let ev = ExposureController.ev(s, slowing) - ExposureController.ev(target, slowing)
+        return FrameStatistics(sceneLuminance: ExposureController.sceneTarget * pow(2, response * ev), faceLuminance: nil,
+                               clippedFraction: 0, neutralCast: nil, neutralFraction: 0, averageCast: .neutral)
+    }
+    var setting = ExposureController.setting(forEV: ExposureController.ev(target, slowing) - 1 / response, slowing)
+    var count = 0, overshoots = 0, lastSign = 1.0
+    for _ in 0..<100 {
+        guard let next = controller.update(stats(setting), current: setting, limits: slowing) else { continue }
+        let sign: Double = next.gain > setting.gain || next.time > setting.time ? 1 : -1
+        if sign != lastSign { overshoots += 1 }
+        lastSign = sign
+        setting = next
+        count += 1
+    }
+    return (count, overshoots)
+}
+// A StreamCam beside a window responded 1.5 to 2.5x; halving the error each time overshot and cycled.
+for response in [1.5, 2.0, 2.5, 2.8] {
+    let run = corrections(response: response)
+    check(run.overshoots <= 1 && run.count <= 3,
+          "on a camera that responds \(response)x the model, exposure settles without cycling (\(run))")
+}
+let exact = corrections(response: 1)
+check(exact.overshoots == 0 && exact.count <= 7, "on a camera that matches the model, exposure still settles (\(exact))")
+
+// MARK: Corrections fade in
+
+let ramp = ExposureController.fade(from: ExposureSetting(time: 400, gain: 111), to: ExposureSetting(time: 400, gain: 135),
+                                    limits: slowing)
+check(ramp.count >= 8 && ramp.last == ExposureSetting(time: 400, gain: 135) && ramp.allSatisfy { $0.time == 400 }
+      && zip([111] + ramp.map(\.gain), ramp.map(\.gain)).allSatisfy { $0 < $1 },
+      "a gain correction fades in over several frames, gain only (\(ramp.count) steps)")
+/// Whether a fade brightens or darkens step by step and trades shutter for gain only once.
+func fadesSmoothly(from start: ExposureSetting, to end: ExposureSetting) -> Bool {
+    let steps = [start] + ExposureController.fade(from: start, to: end, limits: slowing)
+    let ev = steps.map { ExposureController.ev($0, slowing) }
+    let direction = ev.last! >= ev.first! ? 1.0 : -1.0
+    return steps.last == end && steps.count - 1 <= ExposureController.maxFadeFrames
+        && zip(ev, ev.dropFirst()).allSatisfy { ($1 - $0) * direction >= -0.02 }
+        && zip(steps, steps.dropFirst()).filter { $0.time != $1.time }.count <= 1
+}
+// Brighter with a longer shutter: the shutter changes first, then gain rises.
+check(fadesSmoothly(from: ExposureSetting(time: 300, gain: 250), to: ExposureSetting(time: 600, gain: 120)),
+      "a correction that lengthens the shutter fades in and changes the shutter once")
+check(fadesSmoothly(from: ExposureSetting(time: 100, gain: 0), to: ExposureSetting(time: 600, gain: 120)),
+      "a large correction from far too dark changes the shutter once")
+check(fadesSmoothly(from: ExposureSetting(time: 600, gain: 255), to: ExposureSetting(time: 200, gain: 30)),
+      "a large correction from far too bright changes the shutter once")
+check(ExposureController.fade(from: ExposureSetting(time: 400, gain: 111), to: ExposureSetting(time: 400, gain: 112),
+                                limits: slowing) == [ExposureSetting(time: 400, gain: 112)], "a tiny correction is one step")
 
 var leaving = FaceMetering()
 var withFace = onTarget
 withFace.faceLuminance = 0.05
-for tick in 0...5 { _ = leaving.update(withFace, at: Double(tick) * 0.2) }
+for tick in 0...5 { _ = leaving.update(withFace, detected: true, at: Double(tick) * 0.2) }
 var missed = onTarget
-for tick in 6...20 { missed = leaving.update(onTarget, at: Double(tick) * 0.2) }
+for tick in 6...40 { missed = leaving.update(onTarget, detected: true, at: Double(tick) * 0.2) }
 check(leaving.weight == 1 && missed.faceLuminance.map { abs($0 - 0.05) < 1e-9 } == true,
-      "a face missed for 3 s keeps its weight and last brightness")
-for tick in 21...40 { missed = leaving.update(onTarget, at: Double(tick) * 0.2) }
+      "a face missed for 7 s keeps its weight and last brightness")
+for tick in 41...65 { missed = leaving.update(onTarget, detected: true, at: Double(tick) * 0.2) }
 check(leaving.weight == 0 && missed.faceLuminance == nil, "a face that has left fades out of the metering")
 
 check(abs(SmartAuto.settleTime(frameDuration: 1.0 / 30, measuredFrameRate: 8, exposureTime: 0.06) - 0.5) < 1e-9,
