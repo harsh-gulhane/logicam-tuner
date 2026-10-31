@@ -32,8 +32,8 @@ brew install --cask harsh-gulhane/tap/logicam-tuner
   settle and stay put instead of drifting.
 - **Sharp live preview.** Full 1080p at up to 60 fps, right next to the controls.
 - **Stream stats for every call.** A floating overlay shows which app is using the camera, the
-  resolution, the real frame rate, shutter, ISO and white balance. Drag it anywhere, shrink it to one
-  line, or check the same stats from the menu bar.
+  resolution and frame rate (optionally the measured one), shutter, ISO and white balance. Drag it
+  anywhere, shrink it to one line, or check the same stats from the menu bar.
 - **Smooth WhatsApp video.** WhatsApp picks a mode the StreamCam can only run at 5 fps; LogiCam Tuner
   switches it to 1080p at 30 fps automatically.
 - **The MacBook camera too.** The overlay and preview follow whichever camera a call uses, including
@@ -57,10 +57,11 @@ A small panel that floats above your call app and never takes focus from it:
 
 - **Which app and which camera.** The app using the camera (found from the apps also using the
   microphone), the camera's name, and how long the stream has run.
-- **The real stream.** Resolution and configured frame rate next to the frame rate actually measured,
-  plus the pixel format, so you can see what Meet, WhatsApp or FaceTime really get.
-- **What the camera chose.** Shutter speed, ISO, colour temperature and light level. A StreamCam also
-  shows its focus, zoom, HDR, anti-flicker and Smart Auto status.
+- **The real stream.** Resolution, configured frame rate and pixel format, so you can see what Meet,
+  WhatsApp or FaceTime really get, and optionally the frame rate actually measured.
+- **What the camera chose.** Shutter speed, ISO, colour temperature and light level (on the Mac's own
+  camera, while the stream is measured). A StreamCam also shows its focus, zoom, HDR, anti-flicker and
+  Smart Auto status.
 - **A fix you can see.** When LogiCam Tuner switches an app from a slow mode, such as WhatsApp's 5 fps,
   to 1080p at 30 fps, a "Fixed" row shows what the mode was before.
 - **Out of the way.** Drag it anywhere (it remembers where), collapse it to one line with the chevron,
@@ -155,7 +156,8 @@ Also: presets per camera (one can apply automatically whenever the camera connec
 A small floating panel shows, while any app uses the camera:
 
 - which apps are using it (e.g. "Google Chrome", "FaceTime", "WhatsApp") and which camera,
-- the resolution, configured frame rate and the frame rate actually delivered, and the pixel format,
+- the resolution, configured frame rate and pixel format, and the frame rate actually delivered while it
+  is measured (see below),
 - exposure (mode, shutter, ISO), white balance, focus, brightness, zoom, HDR, anti-flicker and low-light boost,
 - Smart Auto's status and how long the camera has been on.
 
@@ -163,6 +165,11 @@ It stays above other windows, appears on every Space and over full-screen apps, 
 from the call. Drag it anywhere (it remembers the spot), minimise it to a single line with the app,
 resolution and frame rate using the chevron, or close it until the camera is next used. Choose Off /
 While an app uses the camera / Always in the App section or the menu-bar panel.
+
+Measuring the frame rate a call really gets means LogiCam Tuner has to stream from the camera too, and
+macOS then lists it next to the call app in its camera menu (the green camera icon in the menu bar),
+with video effects of its own. So it is optional: turn on **Measure frame rate during calls** in the App
+section. Smart Auto streams whenever it is on, since it works on the video.
 
 The same stats are in the menu-bar panel, so a quick look needs no overlay at all: its **Live stream**
 section shows the one-line summary and folds open to every detail, with a link to bring back a closed
@@ -185,9 +192,10 @@ apps use several cameras at once, the StreamCam (or another UVC camera) is shown
 there.
 
 macOS adjusts the built-in camera itself and offers no manual controls for it, so there are no sliders
-or Smart Auto for it. Instead, the overlay and the preview's readout show what the camera reports with
-each frame: shutter speed, ISO, colour temperature and light level, plus resolution and frame rate. The
-camera picker in the window's toolbar selects any camera for the preview.
+or Smart Auto for it. Instead, the overlay (while the stream is measured) and the preview's readout
+show what the camera reports with each frame: shutter speed, ISO, colour temperature and light level,
+plus resolution and frame rate. The camera picker in the window's toolbar selects any camera for the
+preview.
 
 ### Slow video modes (WhatsApp)
 
@@ -281,9 +289,10 @@ Use `--camera <index|serial>` when several cameras are attached and `--json` for
 
 - **Logi Options+ / Logi Tune running at the same time.** They can reapply their own saved settings.
   In testing, values LogiCam Tuner set (including Smart Auto's) stayed in place with Options+ running.
-- **Detecting other apps.** LogiCam Tuner asks CoreMediaIO whether the camera is streaming. While Smart Auto
-  is streaming itself, it pauses for about a second every 10 seconds to check whether the other app
-  is still there. (`AVCaptureDevice.isInUseByAnotherApplication` did not report other apps on macOS 27.)
+- **Detecting other apps.** LogiCam Tuner asks CoreMediaIO whether the camera is streaming. While it is
+  streaming itself, for Smart Auto or to measure the frame rate, it pauses for about a second every
+  10 seconds to check whether the other app is still there.
+  (`AVCaptureDevice.isInUseByAnotherApplication` did not report other apps on macOS 27.)
 - **"Disabled by auto mode".** Many cameras (including the StreamCam) report UVC's "disabled by
   automatic mode" flag permanently, so LogiCam Tuner decides whether a control is locked from the current
   value of its auto control instead.

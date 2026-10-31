@@ -155,7 +155,8 @@ struct StreamStatsView: View {
         return Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
             row("Camera", live.camera.name)
             row("Video", "\(live.resolution) · \(fps(live.configuredFrameRate)) fps")
-            row("Measured", measured(live))
+            // Only known while LogiCam Tuner streams too: for Smart Auto, the preview or when measuring.
+            if live.measuredFrameRate != nil { row("Measured", measured(live)) }
             row("Format", live.pixelFormat)
             if let previous = live.upgradedFrom {
                 GridRow {
@@ -206,7 +207,7 @@ struct StreamStatsView: View {
 
     /// What LogiCam Tuner's own connection receives, which matches what the camera delivers.
     private func measured(_ live: LiveStream) -> String {
-        guard let rate = live.measuredFrameRate else { return "—" }
+        guard let rate = live.measuredFrameRate else { return "" }
         // With auto-exposure priority, long shutter times lower the delivered frame rate.
         let limited = rate < live.configuredFrameRate * 0.9 ? "  (slowed by shutter)" : ""
         return "\(fps(rate)) fps\(limited)"
