@@ -22,7 +22,11 @@ PATCH for fixes. The version lives in the `VERSION` file.
 - Smart Auto keeps the stream's frame rate in low light: it raises ISO to half of Max ISO before it
   lengthens frames. Calls in a dim room ran at about 15 fps.
 - Smart Auto exposure no longer corrects back and forth when face detection misses a face for a moment:
-  a missed face keeps counting for 4 seconds, then fades out.
+  a missed face keeps counting for 8 seconds, then fades out.
+- Smart Auto exposure no longer flashes on calls with a bright window in view. Corrections fade in over
+  several frames instead of landing in one, allow for the camera brightening about twice as much as
+  predicted instead of overshooting, and start only once an error lasts about a second. Faces are
+  measured only on the frame they were found in, since a moving head soon leaves its box.
 - Smart Auto measures again only once its change has reached the camera and four of the frames the
   camera really delivers have passed, and white balance waits for exposure changes. Shutter and gain
   are sent together.

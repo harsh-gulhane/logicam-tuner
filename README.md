@@ -214,10 +214,12 @@ using the camera, LogiCam Tuner looks at a small copy of the video on your Mac a
 manual controls itself:
 
 - **Faces first.** Exposure meters detected faces, blended with the scene, so a bright window behind
-  you no longer leaves your face dark. A face that detection misses for a moment, turning away or
-  looking down, keeps counting for a few seconds, so exposure does not jump.
-- **No breathing.** Exposure only starts correcting at a clearly visible error (0.25 EV) and stops close
-  to target; white balance has the same kind of hysteresis. The picture settles and stays put.
+  you no longer leaves your face dark. A face that detection misses, turning away or looking down at
+  notes, keeps counting for several seconds, so exposure does not swing to the window and back.
+- **No breathing, no flashing.** Exposure only starts correcting at a clearly visible error (0.25 EV)
+  that lasts about a second, and stops close to target; white balance has the same kind of hysteresis.
+  Each correction fades in over a fraction of a second rather than landing in one frame, which people on
+  the call would see as a flash. The picture settles and stays put.
 - **White balance from neutral surfaces.** Only near-grey, well-exposed pixels outside faces count, so a
   coloured shirt or wall does not pull the colour. With too few neutral pixels, it holds the current
   setting instead of guessing.
@@ -231,6 +233,12 @@ On a StreamCam in a dim room, the camera's own auto exposure chose 1/25 s at ful
 white balance left whites amber (5230 K) and drifted for seconds. Smart Auto settled on neutral
 whites at about 3400 K within roughly two seconds. Measured with
 `logicam auto --watch` on one camera and one room; your results will differ.
+
+With a bright window beside and behind the desk, the stream a call app received from a StreamCam
+jumped in brightness between frames 16 times in 90 seconds (by up to 12 levels of 255), as Smart Auto
+corrected, overshot and corrected back. With corrections faded in and averaged over about a second, it
+changed gradually instead: at most one jump of under 5 levels in each of two 90-second runs. Measured
+with a test client in place of the call app.
 
 Smart Auto never turns the camera on by itself: it runs only while another app is streaming (or the
 preview is open). Video is analysed in memory and never recorded or sent anywhere. When LogiCam Tuner
@@ -351,7 +359,13 @@ Each step started with a problem I hit with the StreamCam and ended with a fix i
     jumped whenever face detection missed a turning face for a moment, since metering switched between
     face and scene; a missed face now keeps counting for a few seconds. A stalled stream is restarted,
     and dropped frames are logged.
-14. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
+14. **With a window behind me, the picture flashed on calls.** Measuring the stream a call app receives
+    showed each Smart Auto correction landing in a single frame, and often overshooting: the StreamCam's
+    brightness moves about twice as far as the exposure model predicts. Each correction now allows for
+    that and fades in over several frames; errors are averaged over about a second; faces are measured
+    only on the frame they were found in, since a moving head soon leaves its box, which then covers the
+    window; and a face missed for up to 8 seconds keeps counting.
+15. **Next: a portrait camera for WhatsApp.** The camera only produces landscape video; delivering a
     portrait stream to other apps needs a virtual camera. Research is in progress.
 
 ## Development
