@@ -75,12 +75,14 @@ public final class SmartAuto: @unchecked Sendable {
     private var whiteBalanceController = WhiteBalanceController()
     private var limits: CameraLimits?
     private var exposure: ExposureSetting?
+    /// The rest of a correction, written one step per frame so it fades in.
+    private var fade: [ExposureSetting] = []
     private var kelvin: Int?
     private var nextAnalysis = 0.0, nextFaceDetection = 0.0, nextStatus = 0.0
     /// Writes queued on `io` that the camera has not received yet, and when the last one arrived.
     private var writesInFlight = 0
     private var lastWriteLanded = 0.0
-    private var faces: [CGRect] = []
+    private var lastFrameAt = 0.0
     private var status = SmartAutoStatus()
 
     /// Camera facts read once per activation; refreshed with `refreshCameraState()`.
@@ -143,6 +145,7 @@ public final class SmartAuto: @unchecked Sendable {
             self.state.async {
                 self.limits = limits
                 self.exposure = limits.time.map { ExposureSetting(time: $0.current, gain: limits.gain?.current ?? 0) }
+                self.fade = []
                 self.kelvin = limits.whiteBalance?.current
                 self.status.problem = problem
             }
@@ -168,7 +171,17 @@ public final class SmartAuto: @unchecked Sendable {
 
     private func analyze(_ buffer: CVPixelBuffer) {
         let now = CACurrentMediaTime()
-        guard now >= nextAnalysis, let limits else { return }
+        // A pause in frames means the feed restarted, e.g. while LogiCam Tuner checked whether the call app
+        // still streams. Wait as after a change before measuring again.
+        if now - lastFrameAt > 0.5 { lastWriteLanded = max(lastWriteLanded, now) }
+        lastFrameAt = now
+        guard let limits else { return }
+        // Nothing is measured while a correction fades in.
+        if !fade.isEmpty {
+            if writesInFlight == 0 { writeFadeStep(limits) }
+            return
+        }
+        guard now >= nextAnalysis else { return }
         nextAnalysis = now + 0.2
         let settings = self.settings
         guard settings.isEnabled || onStatistics != nil else { return }
@@ -176,16 +189,19 @@ public final class SmartAuto: @unchecked Sendable {
         exposureController.facePriority = settings.facePriority
         whiteBalanceController.warmthBias = settings.warmth * 0.08
 
-        if now >= nextFaceDetection {
+        // Faces are measured only on the frame they were found in; see `FaceMetering`.
+        var faces: [CGRect] = []
+        let detected = now >= nextFaceDetection
+        if detected {
             nextFaceDetection = now + 0.5
             faces = Self.detectFaces(buffer)
         }
 
         guard var stats = FrameAnalyzer.analyze(buffer, faces: settings.facePriority ? faces : [],
                                                 searchCenter: whiteBalanceController.searchCenter) else { return }
-        onStatistics?(stats)
         // A face detection missed for a moment keeps the face in the metering.
-        stats = faceMetering.update(stats, at: now)
+        stats = faceMetering.update(stats, detected: detected, at: now)
+        onStatistics?(stats)
         exposureController.faceWeight = faceMetering.weight
         let settle = Self.settleTime(frameDuration: feed.frameDuration, measuredFrameRate: feed.measuredFrameRate,
                                      exposureTime: settings.exposure ? exposure.map { Double($0.time) / 10_000 } : nil)
@@ -203,18 +219,18 @@ public final class SmartAuto: @unchecked Sendable {
                 maxGain: gainRange.lowerBound + Int(Double(gainRange.upperBound - gainRange.lowerBound) * settings.maxGain),
                 flickerPeriod: limits.flickerPeriod)
             if let next = exposureController.update(stats, current: current, limits: exposureLimits) {
-                write([(time.control, next.time, current.time)] + (gain.map { [($0.control, next.gain, current.gain)] } ?? []))
-                exposure = next
+                fade = ExposureController.fade(from: current, to: next, limits: exposureLimits)
+                writeFadeStep(limits)
             }
             adjusting = adjusting || exposureController.isCorrecting
             needsMoreLight = exposureController.lastError > ExposureController.stopThreshold
-                && exposure == ExposureController.brightest(exposureLimits)
+                && (fade.last ?? exposure) == ExposureController.brightest(exposureLimits)
         }
 
         // White balance also waits for an exposure change made just above, so it never measures a frame
         // halfway through one.
         if settings.whiteBalance, status.problem == nil, let wb = limits.whiteBalance, let current = kelvin,
-           writesInFlight == 0, now - lastWriteLanded >= max(settle, 0.4), let lo = wb.minimum, let hi = wb.maximum {
+           fade.isEmpty, writesInFlight == 0, now - lastWriteLanded >= max(settle, 0.4), let lo = wb.minimum, let hi = wb.maximum {
             if let next = whiteBalanceController.update(stats, currentKelvin: current, range: lo...hi) {
                 write([(wb.control, next, current)])
                 kelvin = next
@@ -222,7 +238,7 @@ public final class SmartAuto: @unchecked Sendable {
             adjusting = adjusting || whiteBalanceController.isCorrecting
         }
 
-        status.exposure = settings.exposure ? exposure : nil
+        status.exposure = settings.exposure ? fade.last ?? exposure : nil
         status.whiteBalance = settings.whiteBalance ? kelvin : nil
         status.faceDetected = settings.facePriority && faceMetering.weight > 0
         status.adjusting = adjusting && !needsMoreLight
@@ -232,6 +248,17 @@ public final class SmartAuto: @unchecked Sendable {
             let snapshot = status
             DispatchQueue.main.async { [weak self] in self?.onStatus?(snapshot) }
         }
+    }
+
+    /// Writes the next step of a fading correction.
+    private func writeFadeStep(_ limits: CameraLimits) {
+        guard settings.exposure, let time = limits.time, let current = exposure else {
+            fade = []
+            return
+        }
+        let step = fade.removeFirst()
+        write([(time.control, step.time, current.time)] + (limits.gain.map { [($0.control, step.gain, current.gain)] } ?? []))
+        exposure = step
     }
 
     /// Sends the changed values in one I/O turn, so other camera requests on `io` cannot land between
