@@ -97,6 +97,8 @@ struct MainView: View {
                         Picker("Stream overlay", selection: $model.overlayMode) {
                             ForEach(OverlayMode.allCases) { Text($0.rawValue).tag($0) }
                         }
+                        Toggle("Measure frame rate during calls", isOn: $model.measureStream)
+                            .help("While another app uses the camera, LogiCam Tuner streams from it too, to measure the frame rate it really delivers and read the exposure the Mac's camera reports. macOS then lists LogiCam Tuner next to the call app in its camera menu. Smart Auto streams whenever it is on.")
                         Toggle("Open at login", isOn: Binding(get: { model.launchAtLogin }, set: model.setLaunchAtLogin))
                         Text("Closing this window keeps LogiCam Tuner in the menu bar, so Smart Auto keeps working.")
                             .font(.caption).foregroundStyle(.secondary)

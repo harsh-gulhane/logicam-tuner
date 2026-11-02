@@ -89,6 +89,15 @@ final class AppModel: ObservableObject {
             updateFeed()
         }
     }
+    /// While another app uses the camera, stream from it too, to measure the frame rate it really delivers
+    /// and read the exposure that cameras without controls report. Off by default: macOS lists every app
+    /// streaming from the camera in its camera menu, next to the call app.
+    @Published var measureStream = UserDefaults.standard.bool(forKey: "measureStream") {
+        didSet {
+            UserDefaults.standard.set(measureStream, forKey: "measureStream")
+            updateFeed()
+        }
+    }
     /// Switch apps that pick a very slow camera mode (WhatsApp picks the StreamCam's 5 fps one) to 1080p30.
     @Published var fixSlowModes = UserDefaults.standard.object(forKey: "fixSlowModes") as? Bool ?? true {
         didSet { UserDefaults.standard.set(fixSlowModes, forKey: "fixSlowModes") }
@@ -331,11 +340,12 @@ final class AppModel: ObservableObject {
         updateOverlay()
     }
 
-    /// Streams only while the preview is open, or another app is streaming and Smart Auto or the
-    /// overlay (for the measured frame rate) needs frames, so LogiCam Tuner never turns the camera light on by itself.
+    /// Streams only while the preview is open, or another app is streaming and Smart Auto needs frames or
+    /// the stream is to be measured, so LogiCam Tuner never turns the camera light on by itself and
+    /// otherwise stays out of macOS's camera menu during calls.
     private func updateFeed(logging: Bool = true) {
         guard let feed else { return }
-        let wanted = previewVisible || ((smart.isEnabled || overlayMode != .off) && cameraInUse)
+        let wanted = previewVisible || ((smart.isEnabled || measureStream) && cameraInUse)
         guard wanted else {
             if logging, feed.isRunning { Diagnostics.note("stopping capture: preview \(previewVisible), in use \(cameraInUse)") }
             feed.stop()

@@ -11,6 +11,10 @@ PATCH for fixes. The version lives in the `VERSION` file.
   Symbol, which Apple's licence does not allow in app icons.
 - README: logo, highlights and install instructions at the top, and screenshots of the stream overlay
   and the main window.
+- During other apps' calls, LogiCam Tuner streams from the camera only for Smart Auto or when the new
+  **Measure frame rate during calls** setting is on (off by default), so it no longer appears next to the
+  call app in macOS's camera menu. Without it, the overlay shows the configured frame rate but not the
+  measured one, nor the shutter, ISO and light level of the Mac's own camera.
 - The diagnostics log records dropped frames and stalled streams, and no longer records each routine
   check that a call is still using the camera.
 
